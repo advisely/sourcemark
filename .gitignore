@@ -1,0 +1,32 @@
+# Claude Code local session data
+.claude/
+.claude-*/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Temp
+*.tmp
+*.log
+
+# Build output
+dist/
+build/
+target/
+__pycache__/
+*.egg-info/
+.venv/
+node_modules/
+
+# Signing material — never in any repo
+*.pem
+!**/testdata/*.pem
+keys/

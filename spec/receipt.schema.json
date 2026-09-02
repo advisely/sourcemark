@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spec.sourcemark.dev/v0.1/receipt.schema.json",
+  "title": "Sourcemark retrieval receipt — JSON projection",
+  "description": "NON-NORMATIVE PROJECTION. The normative form is COSE-signed CBOR described by receipt.cddl. Signatures are computed over CBOR only; a verifier MUST NOT accept JSON as input to any check (canonicalization.md clause 6.1). This schema exists so a person can read a receipt, and for no other purpose.",
+
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "A 32-byte digest. Lowercase hex; canonicalization.md clause 6.2."
+    },
+    "opaque": {
+      "type": "string",
+      "pattern": "^base16:[0-9a-f]+$",
+      "description": "Bytes that are not a digest of anything — the salt, a signature. Labelled base16 rather than sha256 so no reader is invited to try to reverse it."
+    },
+    "instant": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "RFC 3339 UTC, exactly three fractional digits. In CBOR this is an integer of milliseconds since the epoch; the projection renders it readable and nothing checks it."
+    },
+    "opening": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["salt"],
+          "properties": {
+            "salt": {
+              "$ref": "#/$defs/opaque",
+              "description": "The per-chunk opening, disclosed so an auditor with no KMS access can run the content-binding check."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["erased"],
+          "properties": {
+            "erased": { "const": true },
+            "erased_at": { "$ref": "#/$defs/instant" }
+          },
+          "description": "The version key was destroyed. The tree is unchanged and the inclusion proofs still fold; the leaf can no longer be opened by anyone, including us. Verifies as ERASED, which is not INVALID."
+        }
+      ]
+    },
+    "merkleProof": {
+      "type": "object",
+      "required": ["leaf_index", "tree_size", "path"],
+      "properties": {
+        "leaf_index": { "type": "integer", "minimum": 0 },
+        "tree_size": { "type": "integer", "minimum": 1 },
+        "path": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/digest" },
+          "description": "Bottom-up sibling hashes, RFC 6962 §2.1.1. Direction is derived from (leaf_index, tree_size) and is deliberately absent: a stored direction bit is an input the issuer controls."
+        }
+      }
+    }
+  },
+
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["receipt_version", "kind", "custody", "context"],
+  "properties": {
+    "receipt_version": { "const": "0.1" },
+    "kind": { "const": "sourcemark.retrieval.receipt" },
+
+    "custody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "location", "derivation", "proof"],
+      "description": "Composition, not aggregation. A receipt without custody is a citation.",
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["document_id", "document_version_id", "source_uri", "content_hash", "committed_at"],
+          "properties": {
+            "document_id": { "type": "string" },
+            "document_version_id": { "type": "string" },
+            "source_uri": { "type": "string" },
+            "content_hash": { "$ref": "#/$defs/digest" },
+            "committed_at": { "$ref": "#/$defs/instant" }
+          }
+        },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["byte_range"],
+          "description": "byte_range is the only required coordinate: it is the one a verifier can re-derive from the original file without a parser.",
+          "properties": {
+            "page": { "type": "integer", "minimum": 1 },
+            "paragraph": { "type": "string" },
+            "bbox": {
+              "type": "array",
+              "items": { "type": "integer" },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "byte_range": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 0 },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        "derivation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["chunk_id", "parser", "salt_ref", "content_commitment", "opening"],
+          "properties": {
+            "chunk_id": { "type": "string" },
+            "parser": { "type": "string", "pattern": "^[^@]+@[^@]+$" },
+            "salt_ref": {
+              "type": "string",
+              "description": "KMS handle for the per-version key. Destroying that key is erasure."
+            },
+            "content_commitment": {
+              "$ref": "#/$defs/digest",
+              "description": "HMAC-SHA-256(salt, chunk_text). HMAC, not H(salt || text): SHA-256 is length-extendable."
+            },
+            "opening": {
+              "$ref": "#/$defs/opening",
+              "description": "Either the chunk can be opened or it has been erased and the receipt says so. Not an optional salt: an absent field cannot be told apart from a broken emitter."
+            }
+          }
+        },
+        "proof": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["leaf_hash", "document", "corpus", "log"],
+          "properties": {
+            "leaf_hash": { "$ref": "#/$defs/digest" },
+            "document": {
+              "allOf": [{ "$ref": "#/$defs/merkleProof" }],
+              "required": ["doc_root"],
+              "properties": { "doc_root": { "$ref": "#/$defs/digest" } }
+            },
+            "corpus": {
+              "allOf": [{ "$ref": "#/$defs/merkleProof" }],
+              "required": ["corpus_root"],
+              "properties": { "corpus_root": { "$ref": "#/$defs/digest" } }
+            },
+            "log": {
+              "allOf": [{ "$ref": "#/$defs/merkleProof" }],
+              "required": ["url", "log_id", "entry_profile", "entry_id", "root_hash", "signed_tree_head"],
+              "properties": {
+                "url": { "type": "string", "format": "uri" },
+                "log_id": { "$ref": "#/$defs/digest" },
+                "entry_profile": {
+                  "const": "sourcemark.corpus.v1",
+                  "description": "Names the construction the verifier RECOMPUTES for the log leaf. The entry bytes themselves are absent by design."
+                },
+                "entry_id": { "type": "string" },
+                "root_hash": { "$ref": "#/$defs/digest" },
+                "signed_tree_head": { "$ref": "#/$defs/opaque" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "scorer", "proven"],
+      "description": "Optional. Statistical, never cryptographic.",
+      "properties": {
+        "class": { "enum": ["QUOTED", "SUPPORTED", "INFERRED", "UNSUPPORTED"] },
+        "score": { "type": "number" },
+        "scorer": { "type": "string" },
+        "threshold": { "type": "number" },
+        "proven": {
+          "const": false,
+          "description": "The literal false, not a boolean. A schema permitting true would make a receipt claiming a score is a proof structurally valid. Enforced by the parser rather than by code review."
+        },
+        "note": { "type": "string" }
+      }
+    },
+
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_id", "retriever", "retrieved_at"],
+      "properties": {
+        "query_id": { "type": "string" },
+        "retriever": { "type": "string", "pattern": "^[^@]+@[^@]+$" },
+        "retrieved_at": {
+          "$ref": "#/$defs/instant",
+          "description": "The answer's timestamp. Compared against committed_at for the ordering check."
+        },
+        "policy_ref": { "type": "string" }
+      }
+    }
+  }
+}

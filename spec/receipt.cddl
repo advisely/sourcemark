@@ -1,0 +1,222 @@
+; Sourcemark retrieval receipt, version 0.1
+; SPDX-License-Identifier: CC0-1.0
+;
+; NORMATIVE. This file defines the shape of a receipt. It does NOT define
+; what a verifier hashes -- see canonicalization.md, which is equally
+; normative and which this file cannot replace. A structure valid against
+; this grammar but encoded outside the clause 2 profile is not a receipt.
+;
+; CDDL as defined in RFC 8610.
+
+start = COSE_Sign1_Receipt
+
+; ---------------------------------------------------------------------------
+; Envelope
+; ---------------------------------------------------------------------------
+
+; RFC 9052 4.2. Tag 18, payload embedded, unprotected header always empty.
+; The payload is the canonical encoding of `receipt`, carried as a byte
+; string: a verifier signs and checks the bytes it received, never a
+; re-encoding of a parse of them.
+COSE_Sign1_Receipt = #6.18([
+  protected   : bstr .cbor receipt_protected,
+  unprotected : {},
+  payload     : bstr .cbor receipt,
+  signature   : bstr,
+])
+
+receipt_protected = {
+  1 => alg,                                          ; COSE "alg"
+  3 => "application/vnd.sourcemark.receipt+cbor",    ; COSE "content type"
+  4 => bstr,                                         ; COSE "kid"
+}
+
+; Ed25519 is mandatory to implement; ES256 is also required. See
+; canonicalization.md clause 5. No other value is permitted in v0.1.
+alg = -8 / -7   ; EdDSA / ES256
+
+digest = bstr .size 32
+
+; Milliseconds since the Unix epoch. Never a string, never a float, never a
+; CBOR tag-1 time -- canonicalization.md clause 6.3 gives the reasoning.
+timestamp_ms = uint
+
+; ---------------------------------------------------------------------------
+; Receipt
+; ---------------------------------------------------------------------------
+
+receipt = {
+  receipt_version : "0.1",
+  kind            : "sourcemark.retrieval.receipt",
+  custody         : custody,       ; composition: mandatory
+  ? support       : support,       ; aggregation: optional
+  context         : context,
+}
+
+; A receipt without custody is not a receipt. It is a citation, which is the
+; thing this format exists to replace. See docs/ARCHITECTURE.md 5.
+custody = {
+  source     : source,
+  location   : location,
+  derivation : derivation,
+  proof      : proof,
+}
+
+source = {
+  document_id         : tstr,
+  document_version_id : tstr,
+  source_uri          : tstr,
+  content_hash        : digest,        ; SHA-256 over the whole source file
+  committed_at        : timestamp_ms,  ; when the corpus root was logged
+}
+
+; byte_range is the only mandatory coordinate: it is the one a verifier can
+; re-derive from the original file without a parser. page and bbox are
+; rendering aids for a human reading the receipt, and a scanned or
+; reflowable source may legitimately have neither.
+location = {
+  ? page       : uint,               ; 1-based
+  ? paragraph  : tstr,
+  ? bbox       : [4 * int],          ; [x0, y0, x1, y1], PDF user space
+  byte_range   : [2 * uint],         ; [start, end), into the source file
+}
+
+derivation = {
+  chunk_id           : tstr,
+  parser             : tstr,         ; "docling@2.3.1" -- name@version
+  salt_ref           : tstr,         ; KMS handle for the VERSION key
+  content_commitment : digest,       ; HMAC-SHA-256(salt, chunk_text)
+  opening            : opening,
+}
+
+; Either the chunk can be opened, or it has been erased and the receipt says
+; so. Not an optional `salt`: with an optional field, "erased" and "the
+; emitter forgot" are the same bytes, and docs/SPEC.md principle 5 forbids a
+; missing thing from resembling a passing one. A tombstone must be stated.
+opening = live_opening / erased_opening
+
+live_opening   = { salt: bstr .size 32 }
+erased_opening = { erased: true, ? erased_at: timestamp_ms }
+
+; On `salt`: the launch gate in docs/ROADMAP.md hands a stranger an answer, a
+; receipt and a PDF, offline. That stranger has no KMS access, so a receipt
+; that carries only `salt_ref` cannot have its content binding checked by the
+; one party the format exists to serve. The per-chunk salt is therefore
+; disclosed in the receipt. `salt_ref` identifies the version key it was
+; derived from, which is the key erasure destroys.
+;
+; Erasure consequence, stated plainly: destroying the version key prevents
+; any FUTURE receipt from being opened, and leaves the log revealing nothing.
+; It does not reach into receipts already issued and handed to third parties.
+; Per-chunk derivation confines an already-issued opening to its one chunk.
+
+; ---------------------------------------------------------------------------
+; Proof: three folds
+; ---------------------------------------------------------------------------
+;
+;   chunk leaf  --document.path-->  doc_root
+;   doc leaf    --corpus.path  -->  corpus_root
+;   log leaf    --log.path     -->  log.root_hash, signed by the STH
+;
+; The corpus tree exists so that one batch window costs one log submission
+; rather than one per document version.
+
+proof = {
+  leaf_hash : digest,          ; canonicalization.md 3.3
+  document  : merkle_proof .and { doc_root    : digest },
+  corpus    : merkle_proof .and { corpus_root : digest },
+  log       : log_proof,
+}
+
+merkle_proof = {
+  leaf_index : uint,
+  tree_size  : uint,
+  path       : [* digest],     ; bottom-up siblings, RFC 6962 2.1.1
+  * tstr => any,
+}
+
+log_proof = {
+  url              : tstr,
+  log_id           : digest,   ; SHA-256 over the log key's SPKI DER
+  entry_profile    : "sourcemark.corpus.v1",
+  entry_id         : tstr,
+  leaf_index       : uint,
+  tree_size        : uint,
+  path             : [* digest],
+  root_hash        : digest,
+  signed_tree_head : bstr .cbor COSE_Sign1_STH,
+}
+
+; Note what log_proof does NOT contain: the bytes hashed into the log leaf.
+; The verifier recomputes them from corpus_root and committed_at
+; (canonicalization.md 5.1). A receipt that supplies them supplies an input
+; to the check that is supposed to constrain it.
+
+COSE_Sign1_STH = #6.18([
+  protected   : bstr .cbor sth_protected,
+  unprotected : {},
+  payload     : bstr .cbor sth,
+  signature   : bstr,
+])
+
+sth_protected = { 1 => alg, 4 => bstr }
+
+sth = {
+  log_id    : digest,
+  tree_size : uint,
+  root_hash : digest,
+  timestamp : timestamp_ms,
+}
+
+; ---------------------------------------------------------------------------
+; Support: optional, and never a proof
+; ---------------------------------------------------------------------------
+
+support = {
+  class     : support_class,
+  ? score   : float64,      ; always float64, canonicalization.md 2.6
+  scorer    : tstr,
+  ? threshold : float64,
+  proven    : false,        ; the literal false. Not a bool. See below.
+  ? note    : tstr,
+}
+
+support_class = "QUOTED" / "SUPPORTED" / "INFERRED" / "UNSUPPORTED"
+
+; `proven` is typed as the literal `false`, not as `bool`. A schema that
+; permits `true` permits a receipt asserting that a statistical score is a
+; proof, and every such receipt would be structurally valid. Making the true
+; case ungrammatical means the honesty constraint in docs/SPEC.md 5 is
+; enforced by the parser rather than by a code review.
+;
+; QUOTED is decided rather than estimated -- it is a substring test -- but it
+; still carries proven: false, because what is being asserted is a property
+; of the generated span against the chunk, not a custody claim.
+
+; ---------------------------------------------------------------------------
+; Context
+; ---------------------------------------------------------------------------
+
+context = {
+  query_id     : tstr,
+  retriever    : tstr,             ; "pgvector@0.8.1" -- name@version
+  retrieved_at : timestamp_ms,     ; the answer's timestamp, for the
+                                   ; ordering check
+  ? policy_ref : tstr,
+}
+
+; ---------------------------------------------------------------------------
+; Absence
+; ---------------------------------------------------------------------------
+;
+; When a result cannot carry a receipt, the response carries this instead.
+; It is deliberately NOT a receipt with empty fields: a missing receipt must
+; never be shaped like a passing one. See docs/SPEC.md 3, principle 5.
+
+receipt_unavailable = {
+  receipt_unavailable : {
+    reason   : tstr,
+    ? remedy : tstr,
+    ? state  : "PENDING" / "NOT_ANCHORED" / "ERASED" / "LOG_UNREACHABLE",
+  }
+}

@@ -1,0 +1,43 @@
+Sourcemark receipt v0.1 - worked example derivation
+Regenerate with: python3 spec/examples/build.py
+Every value below is reproducible from this repository alone.
+
+LEVEL 1 - chunk leaf and document tree
+chunk_text (utf-8 bytes)           156
+version_key (KMS, never in receipt) dc18b488b9846c950c036ed31eb372f09eb3264de4d69608502926da100e789f
+salt = HKDF(version_key,...)       c92ab30923a835d4803875cc9fa630ce0608f021421ec5c44c22056577e6e8c9
+commitment = HMAC(salt, text)      2b57d02d8a11749186c6dbab0ddf2add5ae40382e2bef997bedbd57633730122
+leaf_hash                          c5222dc9b9f670fadea2b614c2fe56fac5dcfe080fdf89fc0a6a1a100261cff3
+doc_root                           89f5f845841e12423487aac4efa37b2621cb3f95c5bd53dc594fcdeff3f43dce
+document.path length               4
+
+LEVEL 2 - document leaf and corpus tree
+document_leaf_hash                 6c19b4189e4bd024219e1790c4b7abb89ad6ba6642572f040a66b54f511b2573
+corpus_root                        3644bc90dfb2f073b64562dd639f26ce12444f2129f5d9b2ddbd2a00ded99f92
+corpus.path length                 3
+
+LEVEL 3 - log entry, log tree, signed tree head
+entry_data (recomputed)            8374736f757263656d61726b2e636f727075732e763158203644bc90dfb2f073b64562dd639f26ce12444f2129f5d9b2ddbd2a00ded99f921b0000019ceba739b8
+log_leaf                           b45091b03b859c08772f64349353f6a412a10316d50ac825c0b95bce10611660
+log.path length                    12
+log_root                           7dbb00eb2d69412dbcfc6db8e5ece06b8642155a268bfc39e0a8513b48dc75c0
+log_id = SHA-256(SPKI DER)         9e7fffb04a8ed14ad8fc42b27679301975ca38c6ed8e6eef306ab19767a5b249
+signed_tree_head (COSE_Sign1)      203
+
+RECEIPT
+canonical payload bytes            2053
+payload SHA-256                    a838d08145754b1d41fd1ea8085e82b91e37fafe17c6e0631b08f9c091b49e30
+COSE_Sign1 receipt bytes           2186
+
+ERASED VECTOR - tree unchanged, leaf unopenable
+leaf_hash identical to live?       True
+corpus_root identical to live?     True
+signed_tree_head identical to live? True
+content_commitment still present?  True
+opening now                        erased
+erased payload bytes               2041
+
+CLAUSE 2.7 - what canonicalization does and does not fix
+Sig_structure SHA-256 (fixed)      205266ccfda6b5cd15c705854f7509465772479af54cdbef927208f147949ee2
+signatures byte-identical?         False
+both signatures verify?            True

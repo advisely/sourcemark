@@ -1,0 +1,98 @@
+{
+  "receipt_version": "0.1",
+  "kind": "sourcemark.retrieval.receipt",
+  "custody": {
+    "source": {
+      "document_id": "doc_2f8a91e",
+      "document_version_id": "dv_c3e2881",
+      "source_uri": "s3://policies/2026/SOP-114.pdf",
+      "content_hash": "sha256:648b79ddc82f74818d8cc19187caae39fdd94544802516466646a89eadc9ea7c",
+      "committed_at": "2026-03-14T09:22:11.000Z"
+    },
+    "location": {
+      "page": 47,
+      "paragraph": "p-14",
+      "bbox": [
+        72,
+        318,
+        540,
+        402
+      ],
+      "byte_range": [
+        98211,
+        98644
+      ]
+    },
+    "derivation": {
+      "chunk_id": "chk_88a1c",
+      "parser": "docling@2.3.1",
+      "salt_ref": "kms://tenant-acme/salt/dv_c3e2881",
+      "content_commitment": "sha256:2b57d02d8a11749186c6dbab0ddf2add5ae40382e2bef997bedbd57633730122",
+      "opening": {
+        "salt": "base16:c92ab30923a835d4803875cc9fa630ce0608f021421ec5c44c22056577e6e8c9"
+      }
+    },
+    "proof": {
+      "leaf_hash": "sha256:c5222dc9b9f670fadea2b614c2fe56fac5dcfe080fdf89fc0a6a1a100261cff3",
+      "document": {
+        "leaf_index": 7,
+        "tree_size": 12,
+        "path": [
+          "sha256:6cee2da46f1019a73e660bce21c269883a05082abc8c120eafae7637bc1b49d8",
+          "sha256:70173645bc64525a562adef75edfc75a8842bdb87916682b40e97d24b1af9ae4",
+          "sha256:ac7e0d941f67f6b6fdc8b7b46315b09965f20a86171b62c78902c1dbd8388a74",
+          "sha256:db2933e9bbfe0760a6961d250bbebb1162f5d3dbac29e33b3669e2382da6b6d3"
+        ],
+        "doc_root": "sha256:89f5f845841e12423487aac4efa37b2621cb3f95c5bd53dc594fcdeff3f43dce"
+      },
+      "corpus": {
+        "leaf_index": 2,
+        "tree_size": 5,
+        "path": [
+          "sha256:137bb5aa2a0fbc83e654784b16906da6b16ae7527b683a846d9771c10d955fe5",
+          "sha256:9b918739fb7acaa0d8e2e05d7565bda9063ce6bb27ede6b3802e2487a5114f22",
+          "sha256:03943d0bdddf9edc08eb74cb784bb3c116e706506f7045d4a453460228f61ce6"
+        ],
+        "corpus_root": "sha256:3644bc90dfb2f073b64562dd639f26ce12444f2129f5d9b2ddbd2a00ded99f92"
+      },
+      "log": {
+        "url": "https://log.sourcemark.dev/2026",
+        "log_id": "sha256:9e7fffb04a8ed14ad8fc42b27679301975ca38c6ed8e6eef306ab19767a5b249",
+        "entry_profile": "sourcemark.corpus.v1",
+        "entry_id": "0x3f21a5c0",
+        "leaf_index": 4093,
+        "tree_size": 4096,
+        "path": [
+          "sha256:2fd1b1dcf4e660f89da45cc1d48e8934cc741738accaf383729dfe9310e3a86b",
+          "sha256:c9df390dd019f2b395bb2e9216036c78e57b0fd643b979d3d79514ff2dbd092a",
+          "sha256:0918c108d1507be186b754482668d9d2d06cdd6894354110b234dc5038045c12",
+          "sha256:3ff631ddfb41a3b3511304dc3fcbd2d75201ee96ebe0e716cf5984105f4407b3",
+          "sha256:4921b966d2581f4b7c89c0dc139fe854bc3f0fd784bc9629dfbe17a3893b668a",
+          "sha256:5b184daffd94a3555f9e58ba3cf6d396ab5fb5b7dbbdd9460cfb2c65ae17bc6b",
+          "sha256:88af6a1c6059119dd39dc3720fed6cf90392cfda21ea44329c8302e44401fe78",
+          "sha256:db6bdd0b641e201295ed22d697493a1b26e1f88a4fd6108479981adaadf923d1",
+          "sha256:b354ca26d2b24d0b4a08463feb4b2f9ddfe5116fc8a014389f7a782765ab45f2",
+          "sha256:5a45b5f63456ffb783d1ccafaba07c565b4253b0e969f165bf6a04607f0452d6",
+          "sha256:5fe172fce4b4140af2b7509aad58c3e411d5419e53ebc1d181d551b88d4b3452",
+          "sha256:a950381213f2b569477aea2eb130e147b4d2c2120b4a26fbff18432344960957"
+        ],
+        "root_hash": "sha256:7dbb00eb2d69412dbcfc6db8e5ece06b8642155a268bfc39e0a8513b48dc75c0",
+        "signed_tree_head": "base16:d2844da2012704486c6f672d32303236a05876a4666c6f675f696458209e7fffb04a8ed14ad8fc42b27679301975ca38c6ed8e6eef306ab19767a5b24969726f6f745f6861736858207dbb00eb2d69412dbcfc6db8e5ece06b8642155a268bfc39e0a8513b48dc75c06974696d657374616d701b0000019ceba7495869747265655f73697a6519100058400450381817e98bca4ae5638163e85d3fd131fd1fa01f3798bcf9bfcd5d9f69390a46a09ffb91df2e3bdd3b4e92ef00a48cecaa44d419d8782231cc0621385e09"
+      }
+    }
+  },
+  "support": {
+    "class": "SUPPORTED",
+    "score": 0.91,
+    "scorer": "bge-reranker-v2@1.0",
+    "threshold": 0.85,
+    "proven": false,
+    "note": "Statistical estimate. Not a cryptographic claim."
+  },
+  "context": {
+    "query_id": "q_a8c01",
+    "retriever": "pgvector@0.8.1",
+    "retrieved_at": "2026-09-02T14:02:44.000Z",
+    "policy_ref": "pol_dec_4421"
+  }
+}
