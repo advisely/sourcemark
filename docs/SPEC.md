@@ -65,19 +65,38 @@ Runs as a library inside the customer's existing ingestion job.
 
 **Input:** parser output — chunk text plus its coordinates, which every modern parser already emits.
 
-**Per chunk, compute a leaf:**
+**Per chunk, derive a salt, commit to the text, and build a leaf:**
 
 ```
-leaf = H( doc_version_id ‖ chunk_id ‖ page ‖ bbox ‖ byte_range ‖ H(salt ‖ chunk_text) )
+salt       = HKDF-Expand(version_key, CBOR(["sourcemark.salt.v1", dv_id, chunk_id]), 32)
+commitment = HMAC-SHA-256(key = salt, message = utf8(chunk_text))
+leaf       = SHA-256(0x00 ‖ CBOR(["sourcemark.leaf.v1", dv_id, chunk_id,
+                                  page, bbox, byte_range, commitment]))
 ```
 
-**Per document version, build a Merkle tree** over its leaves → `doc_root`.
-**Per batch window, build a corpus tree** over doc_roots → `corpus_root`.
+Three choices there are load-bearing. [`spec/canonicalization.md`](../spec/canonicalization.md) clause 3 is normative for all of them and argues each at the point it is made.
+
+- **HMAC rather than `H(salt ‖ chunk_text)`.** SHA-256 is length-extendable. Given one published commitment and its length, a forger can extend it to cover text nobody ingested — without ever learning the salt. HMAC is not susceptible and costs the same.
+- **A CBOR array rather than concatenation.** Joining variable-length fields destroys their boundaries: `("dv_c3e2881", "chk_88a1c")` and `("dv_c3e28", "81chk_88a1c")` flatten to identical bytes, and so to an identical leaf. CBOR makes every boundary explicit for about one byte per field.
+- **One salt per chunk rather than one per document version.** A receipt discloses its own chunk's salt (§4.3), so a per-version salt would open every other chunk in that document version. Because the salt is *derived* rather than stored, per-chunk costs nothing but one HMAC at ingest.
+
+**Per document version, build a Merkle tree** over its chunk leaves → `doc_root`.
+**Per batch window, build a corpus tree** over document leaves → `corpus_root`.
 **Submit `corpus_root`** to an RFC 6962 transparency log (customer-hosted Trillian, Sigstore Rekor, or a Sourcemark-operated public log). Nothing else is submitted.
 
-**Write back** into the customer's own store, as ordinary metadata alongside the chunk: `leaf_hash`, `inclusion_path`, `tree_size`, `log_entry_id`, `salt_ref`. Roughly 300–600 bytes per chunk, in columns the store already supports.
+The log then folds that submission into a tree of its own, and *that* tree is what a signed tree head covers. A receipt therefore carries **three inclusion proofs, not one**:
 
-The salt is not decoration — see §7 on erasure.
+```
+chunk leaf  ──document path──▶  doc_root
+doc leaf    ──corpus path  ──▶  corpus_root
+log leaf    ──log path     ──▶  root_hash, signed by the tree head
+```
+
+Stopping after two folds would leave `corpus_root` unattached to anything anybody signed — which is the whole reason it was submitted.
+
+**Write back** into the customer's own store, as ordinary metadata alongside the chunk: `leaf_hash`, the document and corpus paths with their tree sizes, `log_entry_id`, and `salt_ref` — the KMS handle of the **version key**, not of the salt. Roughly 300–600 bytes per chunk, in columns the store already supports.
+
+The per-chunk salt is never stored. It is re-derived from the version key at emit time, which is precisely why destroying that one key erases every chunk in the version at once — see §7.
 
 ### 4.2 Emit — sign at query time
 
@@ -91,20 +110,32 @@ Delivered three ways, all from the same code path:
 ### 4.3 Verify — check offline
 
 ```
-sourcemark verify receipt.cbor --log-key public.pem [--source original.pdf]
+sourcemark verify receipt.cbor --log-key public.pem --text chunk.txt [--source original.pdf]
 ```
 
-Five checks, all local:
+Six checks, all local, run **in a fixed order in which the first failure is the answer**. That order is normative — [`spec/verification.md`](../spec/verification.md) §3 pins it so that two conforming verifiers handed the same broken receipt report the same failure rather than two defensible ones.
 
-1. **Content binding** — recompute `H(salt ‖ chunk_text)`; confirm it matches the receipt.
-2. **Leaf construction** — recompute the leaf from the coordinates; confirm it matches `leaf_hash`.
-3. **Inclusion** — fold `inclusion_path` into `leaf_hash`; confirm it reduces to `corpus_root`.
-4. **Log consistency** — verify the signed tree head's signature and that `corpus_root` is committed at `tree_size`.
-5. **Ordering** — confirm the log entry timestamp precedes the answer timestamp.
+| # | Check | Verdict on failure |
+|---|---|---|
+| 0 | Parse strictly; reject anything outside the canonical encoding profile | `MALFORMED` |
+| 1 | The supplied key hashes to `log_id`; the tree head's signature verifies | `UNSIGNED` |
+| 2 | The entry index falls inside this tree head's tree size | `PENDING` |
+| 3 | Rebuild the leaf; fold all three paths through to the signed root | `FORGED` |
+| 4 | Recompute `HMAC-SHA-256(salt, chunk_text)`; compare to the commitment | `TAMPERED`, or `ERASED` |
+| 5 | The commitment's timestamp precedes the answer's | `BACKDATED` |
+| — | everything passed | `VERIFIED` |
 
-With `--source`, a sixth check re-derives the chunk from the original file at the recorded byte range and confirms byte identity. This is the check an auditor actually wants: *the document I am holding contains this text at this location, and your system committed to that before it answered.*
+`MALFORMED` sits deliberately outside the seven outcomes of [`ARCHITECTURE.md` §7](ARCHITECTURE.md), which describe verification of a *well-formed* receipt. Reporting `FORGED` for a truncated download would label a network failure an attack.
 
-Ships as a static CLI binary, a WASM module for in-browser verification, and a GitHub Action.
+Two properties of that table are the ones to argue about.
+
+**`--text` is required, not optional.** Without the cited text, check 4 cannot run, and everything remaining proves only that *some* leaf is in the tree — not that it is the leaf backing the sentence the auditor is reading. A verifier handed no text must refuse by name rather than downgrade, because a weaker verdict rendered in a terminal is read as a pass.
+
+**The salt travels in the receipt.** The launch gate hands a stranger an answer, a receipt and a PDF, offline. That stranger has no KMS access, so a receipt carrying only `salt_ref` would make check 4 — the only check binding the proof to actual text — unrunnable by the exact party the format exists to serve.
+
+With `--source`, a further check re-derives the chunk from the original file at the recorded byte range, confirms byte identity, and runs check 4 against *those* bytes rather than against text handed in on the command line. This is the check an auditor actually wants: *the document I am holding contains this text at this location, and your system committed to that before it answered.* A verifier must report which of the two it performed; "verified against text you supplied" and "verified against the document itself" are different claims.
+
+Ships as a static CLI binary, a WASM module for in-browser verification, and a GitHub Action, out of [`advisely/sourcemark-verify`](https://github.com/advisely/sourcemark-verify) — a separate repository so that "a second implementer can write this from `spec/` alone" is a boundary rather than a promise.
 
 ### 4.4 Bind — score the support (optional, honest)
 
@@ -146,46 +177,86 @@ Sourcemark refuses that inference in the data model. A receipt whose `custody` v
 
 ## 6. Receipt format
 
-Canonical form is **COSE-signed CBOR**, profiled as a **C2PA manifest for unstructured text** (C2PA v2.3, December 2025, added manifests for unstructured text specifically to cover LLM outputs). A JSON projection exists for debugging and human reading; the CBOR is normative.
+**This section is illustrative. [`spec/`](../spec/) is normative** — [`receipt.cddl`](../spec/receipt.cddl) for the shape, [`canonicalization.md`](../spec/canonicalization.md) for the bytes. Both are needed and neither is sufficient: a schema says which fields exist, not what a verifier hashes, and two implementations can satisfy the grammar while disagreeing on every digest in the receipt.
 
-Emitting a C2PA manifest rather than a bespoke envelope means existing C2PA verifiers already parse the outer structure. We define an assertion, not a format.
+Canonical form is **COSE_Sign1 over deterministic CBOR** (RFC 9052 §4.2, RFC 8949 §4.2.1), profiled as a **C2PA assertion for unstructured text** (C2PA v2.3, December 2025, which added manifests for unstructured text specifically to cover LLM outputs). Emitting a C2PA manifest rather than a bespoke envelope means existing C2PA verifiers already parse the outer structure. We define an assertion, not a format.
+
+A JSON projection exists for debugging and human reading; the CBOR is normative and is what gets signed. The projection is lossy in one direction that matters: timestamps are **integer milliseconds** in CBOR and RFC 3339 strings here. The ordering check in §4.3 is the most security-critical comparison in the system, and making it an integer comparison removes timezone offsets, leap seconds, variable fractional precision, and the entire surface on which two verifiers can disagree about which of two instants came first.
 
 ```json
 {
   "receipt_version": "0.1",
   "kind": "sourcemark.retrieval.receipt",
-
   "custody": {
     "source": {
       "document_id": "doc_2f8a91e",
       "document_version_id": "dv_c3e2881",
       "source_uri": "s3://policies/2026/SOP-114.pdf",
-      "content_hash": "sha256:4a7e…c9b1",
-      "committed_at": "2026-03-14T09:22:11Z"
+      "content_hash": "sha256:648b79dd…ea7c",
+      "committed_at": "2026-03-14T09:22:11.000Z"
     },
     "location": {
       "page": 47,
       "paragraph": "p-14",
-      "bbox": [72, 318, 540, 402],
-      "byte_range": [98211, 98644]
+      "bbox": [
+        72,
+        318,
+        540,
+        402
+      ],
+      "byte_range": [
+        98211,
+        98644
+      ]
     },
     "derivation": {
       "chunk_id": "chk_88a1c",
       "parser": "docling@2.3.1",
-      "salt_ref": "kms://tenant-acme/salt/dv_c3e2881"
+      "salt_ref": "kms://tenant-acme/salt/dv_c3e2881",
+      "content_commitment": "sha256:2b57d02d…0122",
+      "opening": {
+        "salt": "base16:c92ab309…e8c9"
+      }
     },
     "proof": {
-      "leaf_hash": "sha256:…",
-      "inclusion_path": ["sha256:…", "sha256:…"],
-      "tree_size": 4218837,
-      "corpus_root": "sha256:…",
-      "log": "https://log.sourcemark.dev/2026",
-      "log_entry_id": "0x3f21a…",
-      "signed_tree_head": "cose:…"
-    },
-    "verified_offline": true
+      "leaf_hash": "sha256:c5222dc9…cff3",
+      "document": {
+        "leaf_index": 7,
+        "tree_size": 12,
+        "path": [
+          "sha256:6cee2da4…49d8",
+          "sha256:70173645…9ae4",
+          "… 2 more"
+        ],
+        "doc_root": "sha256:89f5f845…3dce"
+      },
+      "corpus": {
+        "leaf_index": 2,
+        "tree_size": 5,
+        "path": [
+          "sha256:137bb5aa…5fe5",
+          "sha256:9b918739…4f22",
+          "… 1 more"
+        ],
+        "corpus_root": "sha256:3644bc90…9f92"
+      },
+      "log": {
+        "url": "https://log.sourcemark.dev/2026",
+        "log_id": "sha256:9e7fffb0…b249",
+        "entry_profile": "sourcemark.corpus.v1",
+        "entry_id": "0x3f21a5c0",
+        "leaf_index": 4093,
+        "tree_size": 4096,
+        "path": [
+          "sha256:2fd1b1dc…a86b",
+          "sha256:c9df390d…092a",
+          "… 10 more"
+        ],
+        "root_hash": "sha256:7dbb00eb…75c0",
+        "signed_tree_head": "base16:d2844da2…5e09"
+      }
+    }
   },
-
   "support": {
     "class": "SUPPORTED",
     "score": 0.91,
@@ -194,28 +265,36 @@ Emitting a C2PA manifest rather than a bespoke envelope means existing C2PA veri
     "proven": false,
     "note": "Statistical estimate. Not a cryptographic claim."
   },
-
   "context": {
     "query_id": "q_a8c01",
     "retriever": "pgvector@0.8.1",
-    "retrieved_at": "2026-09-02T14:02:44Z",
+    "retrieved_at": "2026-09-02T14:02:44.000Z",
     "policy_ref": "pol_dec_4421"
   }
 }
 ```
 
-The `"proven": false` field inside `support` is deliberate and mandatory. It is the machine-readable form of the honesty constraint in §5.
+Every value above is real, taken from [`spec/examples/receipt.json`](../spec/examples/receipt.json) and abbreviated for reading. That file and its CBOR sibling regenerate byte-for-byte from `spec/examples/build.py`, and `spec/examples/derivation.txt` records every intermediate value from chunk text to signature.
+
+Three fields carry more weight than their size suggests.
+
+**`derivation.opening`** is a two-branch union — `{salt}` or `{erased: true}` — not an optional `salt`. With an optional field, "this chunk was erased" and "the emitter forgot to include the salt" are the same bytes, and §3's fifth principle forbids a missing thing from resembling a passing one. A tombstone has to be stated.
+
+**`proof`** carries three folds, not one path. `document` reaches `doc_root`, `corpus` reaches `corpus_root`, and `log` reaches a root that a tree head actually signed. Note what `log` does *not* contain: the bytes hashed into the log leaf. A verifier recomputes those from `corpus_root` and `committed_at`, because a receipt that supplies them is supplying an input to the check that is meant to constrain it.
+
+**`support.proven`** is typed as the literal `false`, not as a boolean. A schema permitting `true` permits a structurally valid receipt asserting that a statistical score is a proof. Making that case ungrammatical enforces the honesty constraint in §5 at the parser rather than at code review.
 
 ### 6.1 When a receipt cannot be issued
 
 ```json
 { "receipt_unavailable": {
     "reason": "chunk predates anchoring (ingested 2025-11-02, anchoring enabled 2026-01-15)",
-    "remedy": "re-anchor corpus segment 'legacy-sops'"
+    "remedy": "re-anchor corpus segment 'legacy-sops'",
+    "state": "NOT_ANCHORED"
 } }
 ```
 
-Never silent, never a stub that resembles a valid receipt.
+Never silent, never a stub that resembles a valid receipt. `state` is drawn from a closed set — `PENDING`, `NOT_ANCHORED`, `ERASED`, `LOG_UNREACHABLE` — so a caller can branch on it without parsing `reason`, which is prose for a human.
 
 ---
 
@@ -223,17 +302,23 @@ Never silent, never a stub that resembles a valid receipt.
 
 A tamper-evident log and a right-to-erasure obligation are in direct conflict, and the conflict is the first thing a privacy officer will raise. Handling it is a requirement, not an extension.
 
-**Mechanism: cryptographic erasure via per-version salts.**
+**Mechanism: cryptographic erasure by destroying a per-version key.**
 
-Each document version gets a random salt held in the customer's KMS. Leaves commit to `H(salt ‖ chunk_text)`, never to the text itself.
+Each document version gets a 32-byte **version key** held in the customer's KMS and identified in the receipt by `salt_ref`. Every chunk's salt is derived from it by HKDF (§4.1); leaves commit to `HMAC-SHA-256(salt, chunk_text)`, never to the text itself. The version key never appears in a receipt.
 
-On an erasure request, the salt is destroyed. Consequences:
+On an erasure request, the version key is destroyed. Consequences:
 
-- The Merkle tree is **unchanged** — history stays intact, prior receipts still verify structurally, and no gap appears in the log
-- The leaf becomes **unopenable** — no party, including us, can demonstrate what content it committed to
-- Future verification of that chunk returns `ERASED`, a distinct outcome from `INVALID`
+- The Merkle tree is **unchanged** — history stays intact, prior receipts still fold to the same roots, and no gap appears in the log
+- No new opening can be produced for any chunk in that version, because the salts are no longer derivable
+- Verification of that chunk returns `ERASED`, a distinct outcome from a custody failure — the proof still verifies, the content simply cannot be shown
 
-This satisfies the regulator's "the data is destroyed" and the auditor's "the log was not rewritten" at the same time. The log holds only roots and salted digests; it never held content to begin with.
+`spec/examples/receipt-erased.cbor` is the worked example after erasure. Its `leaf_hash`, all three paths, both roots and the signed tree head are byte-identical to the live receipt. Only the opening differs.
+
+This satisfies the regulator's "the data is destroyed" and the auditor's "the log was not rewritten" simultaneously. The log holds only roots and salted digests; it never held content to begin with.
+
+**What erasure does not do, stated plainly:** it does not reach into receipts already issued and handed to third parties. Those carry their own opening and stay openable by whoever holds them. Erasure prevents *future* openings and leaves the log itself revealing nothing. Per-chunk derivation is what confines an already-issued opening to its one chunk instead of its whole document version.
+
+That limitation is real, and any material describing this property must state it. Describing cryptographic erasure as retroactive would be false, and false in the direction a privacy officer is specifically checking for.
 
 ---
 
@@ -245,6 +330,8 @@ This satisfies the regulator's "the data is destroyed" and the auditor's "the lo
 | Citation fabricated post-hoc | Log entry timestamp precedes answer timestamp; ordering check | Verify |
 | Vendor backdates a commitment | Append-only log with published signed tree heads; consistency proofs across STHs | Log |
 | Vendor issues a receipt for text never ingested | Inclusion proof cannot be forged without the log's signing key | Verify |
+| Commitment extended to cover text never ingested | HMAC-SHA-256, not `H(salt ‖ text)`; length extension does not apply | Anchor |
+| Two different chunks made to share one leaf | CBOR-array preimage; every field boundary explicit in the bytes | Anchor |
 | Log operator colludes with vendor | Customer-hosted log option; third-party witnessing of tree heads | Deployment |
 | Answer is unsupported but receipt "looks valid" | `support.class` = `UNSUPPORTED`, `proven: false`; custody and support reported separately | Bind |
 | Content leaks via the transparency log | Only salted digests and roots are submitted; nothing reconstructable | Anchor |
@@ -281,6 +368,7 @@ Naming these is as important as naming the features, because each one is a door 
 
 | Document | Purpose |
 |---|---|
+| [`spec/`](../spec/) | **Normative.** The CDDL, the canonical encoding, and the verification procedure |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Component, sequence, class, state, and deployment diagrams |
 | [`USAGE.md`](USAGE.md) | How the four components are actually invoked |
 | [`DISTRIBUTION.md`](DISTRIBUTION.md) | Licensing, repo split, growth loop |

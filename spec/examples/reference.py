@@ -117,7 +117,7 @@ def hkdf_expand(prk: bytes, info: bytes, length: int = 32) -> bytes:
 def chunk_salt(version_key: bytes, document_version_id: str, chunk_id: str) -> bytes:
     """Per-chunk salt (clause 3.1).
 
-    docs/SPEC.md 4.1 puts one salt on the whole document version. That is too
+    docs/SPEC.md 4.1 once put one salt on the whole document version. That is too
     coarse in both directions: disclosing one chunk's opening in one receipt
     would open every other chunk in the version, and erasure could not be
     finer-grained than a whole document. Deriving per chunk costs one HMAC.
@@ -149,7 +149,7 @@ def leaf_hash(
 ) -> bytes:
     """Chunk leaf (clause 3.3).
 
-    docs/SPEC.md 4.1 writes this as a `||` concatenation of the fields. That
+    docs/SPEC.md 4.1 once wrote this as a `||` concatenation of the fields. That
     is not a construction, it is an ambiguity: ("dv_c3e2881", "chk_88a1c")
     and ("dv_c3e28", "81chk_88a1c") concatenate to identical bytes, so two
     different chunks can be given the same leaf. Encoding the preimage as a

@@ -33,16 +33,18 @@ That verifier lives in a separate repository — [`advisely/sourcemark-verify`](
 
 That criterion is why `verification.md` exists: knowing the field layout does not tell you what to check, in what order, or what to conclude, and a verifier written without that is a verifier that disagrees with ours on the first broken receipt.
 
-## Where this contradicts docs/SPEC.md
+## Four corrections this directory made to docs/SPEC.md
 
-Three constructions in `docs/SPEC.md` §4 do not survive being written down precisely. Each deviation is argued at the point it is made, and `docs/SPEC.md` should be updated to match.
+Writing the format down precisely broke four constructions in the prose spec. `docs/SPEC.md` has been updated to match; this table is the record of what changed and why, so that the simpler-looking originals are not reproposed.
 
-| `docs/SPEC.md` says | This directory says | Why |
+| The prose spec said | This directory says | Why |
 |---|---|---|
-| `leaf = H(a ‖ b ‖ c ‖ …)` | CBOR-array preimage | Concatenating variable-length fields is ambiguous — two different chunks can produce one leaf. Demonstrated in `canonicalization.md` 3.3 |
-| `H(salt ‖ chunk_text)` | `HMAC-SHA-256(salt, chunk_text)` | SHA-256 is length-extendable; the naive form lets a forger commit to text nobody ingested, without the salt |
-| one salt per document version, held only in KMS | per-chunk salt, disclosed in the receipt | The launch gate's auditor has no KMS access, so the content-binding check was unrunnable by the one party the format serves |
-| a single flat `inclusion_path` (§6) vs. two trees (§4.1) | three folds: chunk → document → corpus → log | §4.1 and §6 contradict each other, and the log's own tree is a third hop that check 4 requires |
+| `leaf = H(a ‖ b ‖ c ‖ …)` | CBOR-array preimage | Concatenating variable-length fields is ambiguous — two different chunks can produce one leaf. A real collision is exhibited in `canonicalization.md` 3.3 |
+| `H(salt ‖ chunk_text)` | `HMAC-SHA-256(salt, chunk_text)` | SHA-256 is length-extendable; the naive form lets a forger commit to text nobody ingested, without ever learning the salt |
+| one salt per document version, held only in KMS | per-chunk salt derived by HKDF, disclosed in the receipt | The launch gate's auditor has no KMS access, so the content-binding check was unrunnable by the one party the format serves. Per-version salting also opens every sibling chunk the moment one is disclosed |
+| a single flat `inclusion_path` (§6) vs. two trees (§4.1) | three folds: chunk → document → corpus → log | §4.1 and §6 contradicted each other, and neither was complete — the log's own tree is a third hop, and check 3 needs it |
+
+The fourth is the one to notice. The first three were constructions that turned out to be weak. That one was the prose contradicting itself in two places, which no amount of care in a single reading catches.
 
 ## Depends on
 

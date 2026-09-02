@@ -10,10 +10,11 @@ Anyone can check that receipt offline. No account, no network call to us, no tru
 $ sourcemark verify receipt.cbor --log-key public.pem --source SOP-114.pdf
 
   CUSTODY VERIFIED
-  ├─ content binding      ok   sha256:4a7e…c9b1
+  ├─ tree head signature  ok   log.sourcemark.dev/2026 · log_id sha256:9e7fffb0…b249
+  ├─ entry covered        ok   log entry 4093 of tree_size 4096
   ├─ leaf reconstruction  ok   page 47, bbox [72,318,540,402]
-  ├─ inclusion proof      ok   folds to corpus_root at tree_size 4218837
-  ├─ tree head signature  ok   log.sourcemark.dev/2026
+  ├─ inclusion proof      ok   chunk → doc_root → corpus_root → signed root
+  ├─ content binding      ok   HMAC over bytes re-read from SOP-114.pdf
   ├─ ordering             ok   committed 2026-03-14, answered 2026-09-02
   └─ source re-derivation ok   bytes 98211-98644 match SOP-114.pdf
 

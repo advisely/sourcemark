@@ -36,18 +36,20 @@ for doc in corpus:
     anchor.commit(doc.version_id, chunks)      # ← the only new line
 ```
 
-`commit()` hashes each chunk with its coordinates, folds them into a tree, submits the root, and writes five metadata fields back beside your chunks. One migration, once:
+`commit()` derives a salt per chunk, commits to the text with HMAC, folds the chunks into a document tree and the documents into a corpus tree, submits that one root, and writes five metadata fields back beside your chunks. One migration, once:
 
 ```sql
 ALTER TABLE chunks
-  ADD COLUMN sm_leaf        bytea,
-  ADD COLUMN sm_path        jsonb,
-  ADD COLUMN sm_tree_size   bigint,
-  ADD COLUMN sm_log_entry   text,
-  ADD COLUMN sm_salt_ref    text;
+  ADD COLUMN sm_leaf          bytea,   -- this chunk's leaf hash
+  ADD COLUMN sm_doc_proof     jsonb,   -- index, size, path: chunk → doc_root
+  ADD COLUMN sm_corpus_proof  jsonb,   -- index, size, path: document → corpus_root
+  ADD COLUMN sm_log_entry     text,    -- the log entry that corpus root landed in
+  ADD COLUMN sm_salt_ref      text;    -- KMS handle to the version key
 ```
 
 That is the entire schema footprint. No new service, no new store.
+
+Note what is *not* in that table: the salt. It is re-derived from the version key at emit time, which is what makes erasure a single key deletion rather than a scan over every row — and what stops a database dump from being an opening for every chunk in it.
 
 ---
 
@@ -99,16 +101,21 @@ This is the step that makes Sourcemark different from an audit log: **the eviden
 The recipient has no account, no access to your systems, and no reason to trust you.
 
 ```console
-$ sourcemark verify receipt.cbor --source SOP-114.pdf
+$ sourcemark verify receipt.cbor --log-key public.pem --source SOP-114.pdf
 
   CUSTODY VERIFIED
-  ├─ content binding      ok   sha256:4a7e…c9b1
-  ├─ leaf reconstruction  ok   page 47, bbox [72, 318, 540, 402]
-  ├─ inclusion proof      ok   folds to corpus_root @ tree_size 4218837
-  ├─ tree head signature  ok   log.sourcemark.dev/2026
-  ├─ ordering             ok   committed 2026-03-14 · answered 2026-09-02
-  └─ source re-derivation ok   bytes 98211–98644 match SOP-114.pdf
+  ├─ tree head signature  ok   log.sourcemark.dev/2026 · log_id sha256:9e7fffb0…b249
+  ├─ entry covered        ok   log entry 4093 of tree_size 4096
+  ├─ leaf reconstruction  ok   page 47, bbox [72,318,540,402]
+  ├─ inclusion proof      ok   chunk → doc_root → corpus_root → signed root
+  ├─ content binding      ok   HMAC over bytes re-read from SOP-114.pdf
+  ├─ ordering             ok   committed 2026-03-14, answered 2026-09-02
+  └─ source re-derivation ok   bytes 98211-98644 match SOP-114.pdf
 ```
+
+The order is not cosmetic. [`spec/verification.md`](../spec/verification.md) §3 fixes it, first failure wins, so that two conforming verifiers handed the same broken receipt name the same culprit. Nothing downstream of a tree head runs before that tree head is established as trustworthy.
+
+`--source` is what upgrades the run: without it the verifier needs `--text` and reports *verified against text you supplied*; with it, the content binding is recomputed over bytes re-read from the document itself. Those are different claims and the tool must not render them identically.
 
 Auditors do not use a terminal. So the same verifier ships as WASM at `verify.sourcemark.dev` — drag the receipt and the PDF onto the page, get a verdict. Nothing uploads; the check runs in the tab. That page is the single most important surface we ship, because it is the one used by people who are not our customers.
 
@@ -119,11 +126,14 @@ Auditors do not use a terminal. So the same verifier ships as WASM at `verify.so
 ```console
 $ sed -i 's/30 days/90 days/' SOP-114.pdf     # someone edits the source
 
-$ sourcemark verify receipt.cbor --source SOP-114.pdf
+$ sourcemark verify receipt.cbor --log-key public.pem --source SOP-114.pdf
 
-  ✗ TAMPERED — content hash mismatch
-      expected  sha256:4a7e…c9b1
-      actual    sha256:b18f…772e
+  ✗ TAMPERED — content binding failed
+      committed  sha256:2b57d02d…0122
+      recomputed sha256:b18f4c07…772e
+
+  The inclusion proof still folds. The tree head still verifies.
+  Only the bytes changed — which is exactly what the receipt is for.
 
   The document you are holding is not the document that was cited.
 ```

@@ -55,7 +55,8 @@ PRIVATE — advisely/sourcemark-protocol          the repository of record
   scripts/  .publicignore                       the publishing machinery
   archive/                                      v1 artefacts, never published
 
-        │  scripts/stage-public-repo.sh  →  audit-pre-public.sh
+        │  scripts/publish-public-repo.sh
+        │    stage → audit → clone → audit again → commit → push
         ▼
 
 PUBLIC — advisely/sourcemark                    derived, fresh history
@@ -72,6 +73,10 @@ The repository of record began life as ScaleDB v1 and its history still contains
 There were three ways out. Rewriting history with `git filter-repo` destroys every hash and the "nothing was lost" property `PIVOT.md` depends on. Moving the material elsewhere and then rewriting has the same cost. Deriving a fresh public tree has neither: the repo of record keeps its history intact and private, and the public repository starts clean because it was never a copy of anything.
 
 This is also the difference between a process and a property. "Remember not to publish the strategy directory" is a process, and processes are forgotten. A public tree that is generated from an explicit allowlist and gated by an audit that **fails closed** cannot leak what was never staged.
+
+Publishing is one command, `scripts/publish-public-repo.sh`, and not three. Doing it by hand worked the first time and is exactly the thing that gets done from memory the second time, with the audit skipped because the diff "was only docs". The script stages into a scratch tree, audits it, copies it over a clone of the public repository, **audits again now that public history is attached** — so the history check runs against what is actually published rather than against an empty tree — and only then commits and pushes. Any failure at any point leaves the remote untouched, which is tested by planting a secret and confirming the published commit count does not move.
+
+The public tree is replaced wholesale on each publish, because it is derived: a file that stops being staged must stop being published. Public history is preserved rather than force-pushed — for a provenance product, letting readers watch the format change over time is part of the argument.
 
 `scripts/audit-pre-public.sh` refuses to publish on any of: a `.publicignore` path surviving staging, private-key or token material in staged content, a v1 artefact by name, prose that publishes a `git show <hash>:` retrieval path, a v1 artefact anywhere in the staged repository's history, or an internal link that does not resolve — since a dangling link is itself a map to what was removed. Each of those refusals is tested against a planted violation.
 

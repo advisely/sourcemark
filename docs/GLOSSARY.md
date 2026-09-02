@@ -26,7 +26,7 @@ The Merkle root over a batch of document roots, computed per batch window. The *
 Layer 1 of a receipt. The claim that a piece of text is byte-identical to what was ingested from a given source at given coordinates, committed at a given time. **Cryptographic and binary.** Mandatory in every receipt.
 
 ### Cryptographic erasure
-Satisfying a deletion obligation by destroying a key rather than a record. Leaves commit to `H(salt ‖ text)`; destroying the salt makes the leaf unopenable while the Merkle tree stays intact. Resolves the conflict between right-to-erasure and tamper-evidence without rewriting history. See `SPEC.md §7`.
+Satisfying a deletion obligation by destroying a key rather than a record. Leaves commit to `HMAC-SHA-256(salt, text)`, where the salt is derived per chunk from a per-version key in KMS; destroying that key makes every leaf in the version unopenable while the Merkle tree stays intact. Resolves the conflict between right-to-erasure and tamper-evidence without rewriting history. It does not reach receipts already issued, which carry their own opening — see `SPEC.md §7`.
 
 ### Document version
 An immutable, content-addressed ingestion of a source document. Re-ingesting a changed file creates a new version rather than overwriting the old one — the property most retrieval stacks lack, and the reason "which version?" is normally unanswerable.
@@ -44,7 +44,7 @@ A verification outcome. The inclusion path does not fold to the claimed corpus r
 The sibling hashes needed to fold a leaf up to the corpus root. About twenty hashes at a million chunks, since the count is logarithmic. Stored beside the chunk in the customer's store, not held by us.
 
 ### Leaf
-The Merkle tree's bottom node for one chunk: `H(ids ‖ coordinates ‖ H(salt ‖ text))`. Binding the coordinates *into* the leaf is what prevents a valid proof being replayed against a different location in the same document.
+The Merkle tree's bottom node for one chunk: `H(0x00 ‖ CBOR([tag, ids, coordinates, commitment]))`. The preimage is a CBOR array rather than a concatenation, because concatenating variable-length fields lets two different chunks collide onto one leaf. Binding the coordinates *into* the leaf is what prevents a valid proof being replayed against a different location in the same document.
 
 ### Proof bundle
 The v1 term for what is now called a **receipt**. Retained only in `PIVOT.md`. The rename is not cosmetic: "bundle" described a container, "receipt" describes an artifact that travels to someone else.

@@ -87,7 +87,7 @@ The text MUST be compared as the exact bytes committed to. A verifier MUST NOT t
 
 If `derivation.opening` is `{erased: true}`, skip 4.4, continue to 4.5, and report `ERASED` in place of `VERIFIED` at the end.
 
-`ERASED` is not `INVALID`. It is the correct outcome for a chunk whose version key was destroyed: the tree is unchanged, the inclusion proofs still fold, the log has no gap, and no party — including us — can now demonstrate what the leaf committed to. The regulator's "the data is destroyed" and the auditor's "the log was not rewritten" hold simultaneously, which is the entire argument of `docs/SPEC.md` §7.
+`ERASED` is not `INVALID`. It is the correct outcome for a chunk whose version key was destroyed: the tree is unchanged, the inclusion proofs still fold, the log has no gap, and no party — including us — can produce a new opening for that leaf. The regulator's "the data is destroyed" and the auditor's "the log was not rewritten" hold simultaneously, which is the entire argument of `docs/SPEC.md` §7.
 
 `examples/receipt-erased.cbor` is the same chunk as `examples/receipt.cbor` after erasure. Its `leaf_hash`, all three paths, both roots and the signed tree head are byte-identical. Only the opening differs. A verifier that reports anything other than `ERASED` for it, or that reports `ERASED` for it while reporting anything other than `VERIFIED` for the live one, is non-conforming.
 

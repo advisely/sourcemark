@@ -23,7 +23,7 @@ flowchart LR
         SRC --> PARSE
         PARSE -->|"chunks + page/bbox/byte-range"| ANCHOR
         PARSE -->|"chunks + embeddings"| STORE
-        ANCHOR -->|"writes leaf_hash,<br/>inclusion_path as metadata"| STORE
+        ANCHOR -->|"writes leaf_hash,<br/>proof paths as metadata"| STORE
         STORE -->|"top-k results"| EMIT
         EMIT -->|"results + receipts"| APP
     end
@@ -56,7 +56,7 @@ flowchart TB
 
         subgraph A["ANCHOR · ingest"]
             A1["Coordinate normalizer<br/>parser-specific adapters"]
-            A2["Leaf builder<br/>H salt ‖ text + coords"]
+            A2["Leaf builder<br/>HMAC commitment + CBOR coords"]
             A3["Merkle tree builder<br/>per document version"]
             A4["Batch submitter<br/>corpus root → log"]
             A5["Metadata writer<br/>store-specific adapters"]
@@ -117,18 +117,20 @@ sequenceDiagram
     J->>P: parse(document.pdf)
     P-->>J: chunks + page/bbox/byte_range
     J->>AN: anchor(doc_version, chunks)
-    AN->>KMS: mint salt for doc_version
-    KMS-->>AN: salt handle
+    AN->>KMS: mint version_key for doc_version
+    KMS-->>AN: salt_ref (handle to the version key)
     loop each chunk
-        AN->>AN: leaf = H(ids ‖ coords ‖ H(salt ‖ text))
+        AN->>AN: salt = HKDF(version_key, dv_id, chunk_id)
+        AN->>AN: commitment = HMAC-SHA-256(salt, text)
+        AN->>AN: leaf = H(0x00 ‖ CBOR[ids, coords, commitment])
     end
     AN->>AN: build doc Merkle tree → doc_root
-    AN->>DB: write leaf_hash, inclusion_path, salt_ref
+    AN->>DB: write leaf_hash, document path, salt_ref
     Note over AN,LOG: batching window (default 60s)
     AN->>AN: build corpus tree over doc_roots
     AN->>LOG: submit corpus_root (32 bytes, nothing else)
     LOG-->>AN: log_entry_id + signed tree head
-    AN->>DB: write log_entry_id, tree_size
+    AN->>DB: write log_entry_id, corpus path, tree sizes
     Note over J,DB: chunk is now anchored and queryable
 ```
 
@@ -164,9 +166,10 @@ sequenceDiagram
 
     Note over AUD: months later, no system access
     U->>AUD: hands over answer + receipt + original PDF
-    AUD->>AUD: sourcemark verify receipt.cbor --source original.pdf
-    AUD->>AUD: fold inclusion path → corpus_root
-    AUD->>AUD: check tree-head signature against public key
+    AUD->>AUD: sourcemark verify receipt.cbor --log-key pub.pem --source original.pdf
+    AUD->>AUD: check tree-head signature, and that its key hashes to log_id
+    AUD->>AUD: fold chunk → doc_root → corpus_root → signed root
+    AUD->>AUD: re-read byte_range from the PDF, recompute the HMAC
     AUD-->>AUD: CUSTODY VERIFIED · committed 2026-03-14, before answer
 ```
 
@@ -186,8 +189,7 @@ classDiagram
 
     class Custody {
         <<cryptographic · binary>>
-        +bool verified_offline
-        +check() bool
+        +check() VerificationOutcome
     }
 
     class Support {
@@ -218,17 +220,40 @@ classDiagram
         +string chunk_id
         +string parser
         +string salt_ref
+        +bytes content_commitment
+        +Opening opening
     }
 
-    class InclusionProof {
+    class Opening {
+        <<salt · or · erased tombstone>>
+        +bytes salt
+        +bool erased
+    }
+
+    class Proof {
         +string leaf_hash
-        +string[] inclusion_path
+        +MerkleFold document
+        +MerkleFold corpus
+        +LogFold log
+    }
+
+    class MerkleFold {
+        +int leaf_index
         +int tree_size
-        +string corpus_root
-        +string log
-        +string log_entry_id
-        +bytes signed_tree_head
+        +string[] path
+        +string root
         +fold() string
+    }
+
+    class LogFold {
+        +string url
+        +string log_id
+        +string entry_id
+        +int leaf_index
+        +int tree_size
+        +string[] path
+        +string root_hash
+        +bytes signed_tree_head
     }
 
     class QueryContext {
@@ -252,11 +277,16 @@ classDiagram
     Custody "1" *-- "1" Source
     Custody "1" *-- "1" Location
     Custody "1" *-- "1" Derivation
-    Custody "1" *-- "1" InclusionProof
+    Custody "1" *-- "1" Proof
+    Derivation "1" *-- "1" Opening
+    Proof "1" *-- "2" MerkleFold : document, corpus
+    Proof "1" *-- "1" LogFold
     Support ..> SupportClass
 
     note for Support "proven is always false.\nA score is never a proof."
     note for Custody "Composition, not aggregation:\na receipt without custody\nis not a receipt."
+    note for Opening "A union, not an optional field.\nErased must be stated, not\nindistinguishable from omitted."
+    note for Proof "Three folds. Two leave\ncorpus_root attached to\nnothing anyone signed."
 ```
 
 `Support` is an aggregation and optional; `Custody` is a composition and mandatory. A Sourcemark receipt with no support score is still a valid receipt. A receipt with no custody proof is not a receipt at all — it is a citation, which is what we are replacing.
@@ -393,7 +423,7 @@ Same underlying insight — provenance belongs at the retrieval layer — expres
 
 | Dimension | Figure | Note |
 |---|---|---|
-| Storage overhead per chunk | 300–600 bytes | `leaf_hash` 32B, `inclusion_path` ~20×32B at 1M chunks, ids and coords |
+| Storage overhead per chunk | 300–600 bytes | `leaf_hash` 32B, document + corpus paths ~20×32B at 1M chunks, ids and coords. The salt is derived, not stored |
 | Overhead on a 10M-chunk corpus | ~4–6 GB | In the customer's existing store, in existing columns |
 | Anchor throughput | ~50k leaves/sec/core | SHA-256 bound; Merkle build is linear |
 | Emit added latency | < 2 ms p95 | Metadata is already in the result row; signing is one Ed25519 op |

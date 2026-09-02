@@ -94,7 +94,7 @@ salt  = HKDF-Expand( PRK = version_key, info = info, L = 32 )     # RFC 5869 §2
 
 HKDF-Extract is skipped: the version key is already a uniformly random KMS secret, so there is no entropy to concentrate.
 
-**This deviates from `docs/SPEC.md` §4.1**, which places a single salt on the whole document version. One salt per version is too coarse in both directions. Disclosing a chunk's opening — which clause 3.2 requires — would open every other chunk in that version, and erasure could not be finer-grained than a whole document. Deriving per chunk costs one HMAC at ingest.
+`docs/SPEC.md` §4.1 placed a single salt on the whole document version until this clause was written; it now matches. The argument is kept because per-version salting is the obvious simplification and will be proposed again. One salt per version is too coarse in both directions. Disclosing a chunk's opening — which clause 3.2 requires — would open every other chunk in that version, and erasure could not be finer-grained than a whole document. Deriving per chunk costs one HMAC at ingest.
 
 ### 3.2 Content commitment
 
@@ -102,7 +102,7 @@ HKDF-Extract is skipped: the version key is already a uniformly random KMS secre
 content_commitment = HMAC-SHA-256( key = salt, message = utf8(chunk_text) )
 ```
 
-**This deviates from `docs/SPEC.md` §4.1**, which specifies `H(salt ‖ chunk_text)`.
+`docs/SPEC.md` §4.1 specified `H(salt ‖ chunk_text)` until this clause was written; it now matches. The reasoning is recorded here because the naive form looks equivalent and is not.
 
 SHA-256 is a Merkle–Damgård construction. An attacker who learns `H(salt ‖ text)` and the length of `salt ‖ text` can compute `H(salt ‖ text ‖ padding ‖ suffix)` for a suffix of their choosing, without ever learning the salt — and thus produce a valid-looking commitment for text that was never ingested. HMAC is not susceptible. The cost is identical.
 
@@ -123,9 +123,9 @@ preimage  = encode([
 leaf_hash = H( 0x00 ‖ preimage )
 ```
 
-**This deviates from `docs/SPEC.md` §4.1**, which writes the leaf as `H(doc_version_id ‖ chunk_id ‖ page ‖ bbox ‖ byte_range ‖ H(salt ‖ chunk_text))`.
+`docs/SPEC.md` §4.1 wrote the leaf as `H(doc_version_id ‖ chunk_id ‖ page ‖ bbox ‖ byte_range ‖ H(salt ‖ chunk_text))` until this clause was written; it now matches.
 
-That is not a construction, it is an ambiguity. Concatenating variable-length fields destroys their boundaries:
+That form is not a construction, it is an ambiguity. Concatenating variable-length fields destroys their boundaries:
 
 ```
 ("dv_c3e2881", "chk_88a1c")  ->  64765f6333653238383163686b5f38386131633437
