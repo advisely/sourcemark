@@ -1,0 +1,77 @@
+# A local Rekor on a real Trillian, for sourcemark/tests/test_rekor_integration.py.
+#
+#   docker compose -f sourcemark/tests/rekor-compose.yml up -d
+#   SOURCEMARK_REKOR_WRITE=http://localhost:3010 python3 -m sourcemark.tests.test_rekor_integration
+#   docker compose -f sourcemark/tests/rekor-compose.yml down -v
+#
+# Prebuilt images only, so this needs no checkout of the Rekor repository. It
+# exists because the alternative -- answering "does our client work against a
+# real Rekor?" by submitting to the public one -- puts permanent test data in
+# a log that belongs to everybody. The signer is in-memory and the database is
+# ephemeral: this stack is for exercising a client, never for anchoring
+# anything anyone will rely on.
+#
+# SPDX-License-Identifier: Apache-2.0
+services:
+  mysql:
+    platform: linux/amd64
+    image: gcr.io/trillian-opensource-ci/db_server:v1.4.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=zaphod
+      - MYSQL_DATABASE=test
+      - MYSQL_USER=test
+      - MYSQL_PASSWORD=zaphod
+    restart: always
+    healthcheck:
+      test: "mysqladmin -h 127.0.0.1 --user=$$MYSQL_USER --password=$$MYSQL_ROOT_PASSWORD -s ping"
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+  trillian-log-server:
+    image: gcr.io/trillian-opensource-ci/log_server:v1.4.0
+    command:
+      - "--quota_system=noop"
+      - "--storage_system=mysql"
+      - "--mysql_uri=test:zaphod@tcp(mysql:3306)/test?parseTime=true"
+      - "--rpc_endpoint=0.0.0.0:8090"
+      - "--http_endpoint=0.0.0.0:8091"
+      - "--alsologtostderr"
+    restart: always
+    depends_on: { mysql: { condition: service_healthy } }
+  trillian-log-signer:
+    image: gcr.io/trillian-opensource-ci/log_signer:v1.4.0
+    command:
+      - "--quota_system=noop"
+      - "--storage_system=mysql"
+      - "--mysql_uri=test:zaphod@tcp(mysql:3306)/test?parseTime=true"
+      - "--force_master"
+      - "--http_endpoint=0.0.0.0:8091"
+      - "--alsologtostderr"
+    restart: always
+    depends_on: { mysql: { condition: service_healthy } }
+  rekor-server:
+    image: ghcr.io/sigstore/rekor/rekor-server:v1.3.6
+    command:
+      - "serve"
+      - "--trillian_log_server.address=trillian-log-server"
+      - "--trillian_log_server.port=8090"
+      - "--redis_server.address=redis-server"
+      - "--redis_server.port=6379"
+      - "--rekor_server.address=0.0.0.0"
+      - "--rekor_server.signer=memory"
+      - "--enable_attestation_storage"
+      - "--attestation_storage_bucket=file:///var/run/attestations"
+      - "--enable_stable_checkpoint"
+      - "--search_index.storage_provider=mysql"
+      - "--search_index.mysql.dsn=test:zaphod@tcp(mysql:3306)/test"
+    volumes: [ "/var/run/attestations:/var/run/attestations" ]
+    restart: always
+    ports: [ "3010:3000", "2112:2112" ]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis-server: { condition: service_started }
+  redis-server:
+    image: docker.io/valkey/valkey:8-alpine
+    command: [ "--bind", "0.0.0.0", "--appendonly", "yes" ]
+    restart: always

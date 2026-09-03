@@ -17,7 +17,8 @@ SPDX-License-Identifier: Apache-2.0
 import sys
 
 from . import (
-    test_conformance, test_pgvector, test_pipeline, test_regressions, test_rekor_live,
+    test_conformance, test_pgvector, test_pipeline, test_regressions,
+    test_rekor_integration, test_rekor_live,
 )
 
 SUITES = (
@@ -25,7 +26,8 @@ SUITES = (
     ("pipeline", test_pipeline),
     ("regressions", test_regressions),
     ("pgvector (live database)", test_pgvector),
-    ("rekor (live, read-only)", test_rekor_live),
+    ("rekor (production, read-only)", test_rekor_live),
+    ("rekor (local, read-write)", test_rekor_integration),
 )
 
 if __name__ == "__main__":

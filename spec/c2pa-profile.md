@@ -1,7 +1,7 @@
 # C2PA assertion profile — Sourcemark receipt v0.1
 
 **Licence:** CC0-1.0.
-**Status:** Draft. See §7 for what must be checked against the published C2PA text before this is called normative.
+**Status:** Draft, with every open item now resolved against the published specification. Checked against [C2PA v2.3](https://c2pa.org/specifications/specifications/2.3/specs/C2PA_Specification.html) and confirmed unchanged in v2.4; §7 records what was found. It stays draft until an implementation actually emits and validates one — a profile nobody has run is a design, not a profile.
 
 `docs/SPEC.md` §6 commits to emitting a C2PA manifest rather than a bespoke envelope, so that existing C2PA tooling parses the outer structure and we contribute an assertion instead of a stack. This document says exactly what that assertion is.
 
@@ -28,7 +28,16 @@ A C2PA manifest with no Sourcemark assertion says who generated an answer. A Sou
 dev.sourcemark.retrieval.receipt
 ```
 
-Reverse-DNS, per C2PA's convention for vendor assertions. The version lives inside the assertion (`receipt_version`), not in the label, so that a manifest carrying receipts of two versions remains well-formed during a migration.
+C2PA §6.2.1 requires an entity-specific namespace to **begin with the Internet domain name for the entity**, ordered as Java packages are (`com.litware`, `net.fineartschool`), with each period-separated component matching:
+
+```abnf
+entity           = entity-component *( "." entity-component )
+entity-component = 1( DIGIT / ALPHA ) *( DIGIT / ALPHA / "-" / "_" )
+```
+
+For `sourcemark.dev` that is `dev.sourcemark`, and every component here is well-formed. **No registration is required**: only the `c2pa` namespace is reserved by the specification, and entity namespaces are self-allocated on the strength of owning the domain. The corollary is that the domain is the claim to the label, so letting `sourcemark.dev` lapse would hand someone else the right to mint assertions under it.
+
+The version lives inside the assertion (`receipt_version`), not in the label, so that a manifest carrying receipts of two versions remains well-formed during a migration.
 
 ## 3. Assertion data
 
@@ -42,7 +51,16 @@ When a receipt travels **outside** a manifest — over HTTP, through MCP, as a f
 
 ## 4. Multiple receipts
 
-An answer citing four chunks carries four assertions with the same label. C2PA distinguishes repeated assertions by index in the assertion store; a consumer MUST NOT assume there is exactly one, and MUST NOT merge them.
+An answer citing four chunks carries four assertions of the same type. C2PA §6.4 requires assertion labels to be unique within a manifest, and disambiguates repeats by appending a **double underscore and a monotonically increasing index**:
+
+```
+dev.sourcemark.retrieval.receipt
+dev.sourcemark.retrieval.receipt__1
+dev.sourcemark.retrieval.receipt__2
+dev.sourcemark.retrieval.receipt__3
+```
+
+The first instance carries no suffix. A consumer MUST NOT assume there is exactly one, MUST NOT merge them, and MUST NOT treat `__0` as valid — it is not a form the specification produces.
 
 Ordering carries no meaning. A consumer that needs to associate a receipt with a span of the generated text uses `context.query_id` together with the citation markers in the answer; C2PA assertion order MUST NOT be used for that association.
 
@@ -62,19 +80,25 @@ Where the producing application already records retrieval inputs as C2PA ingredi
 
 A Sourcemark receipt MUST NOT be emitted as an ingredient in place of an assertion. An ingredient describes an asset that went into this one; a receipt describes a *proof about a fragment* of such an asset, and flattening the two loses the coordinates.
 
-## 7. Open items — to confirm against the published C2PA specification
+## 7. The five open items, resolved
 
-These are recorded rather than guessed. Each must be checked against the C2PA text and this document updated before the profile is called normative; `docs/ROADMAP.md` places C2PA assertion registration in Phase 1, which is the right time.
+These were recorded rather than guessed, and have now been checked against the published text. Section numbers are C2PA v2.3; each was confirmed unchanged in v2.4.
 
-| # | Item |
-|---|---|
-| 1 | The exact manifest type for unstructured text introduced in C2PA v2.3, and whether a text asset's hard binding is defined over the same structure as a media asset's |
-| 2 | Whether `dev.sourcemark.*` requires registration with the C2PA assertion registry, or whether reverse-DNS vendor labels are unreserved |
-| 3 | The precise assertion-store indexing rule for repeated labels, to make §4 exact rather than descriptive |
-| 4 | Whether a text manifest may be embedded in the answer payload or must travel sidecar, which determines how Emit delivers over HTTP |
-| 5 | Whether C2PA's own timestamping interacts with the ordering check in `verification.md` §4.6, and which timestamp wins if they disagree |
+**1 — How a text asset is bound.** C2PA §A.7 defines embedding for unstructured text: a `C2PATextManifestWrapper` carrying a complete Manifest Store in JUMBF, encoded as **Unicode Variation Selectors** (U+FE00–U+FE0F and U+E0100–U+E01EF), which are non-rendering by design. The wrapper is `magic` = `C2PATXT\0` (`0x4332504154585400`), `version` = 1, `manifestLength`, then the JUMBF container. Quantity is zero or one per asset.
 
-Until item 1 is resolved, the COSE_Sign1 form in `receipt.cddl` is the interoperable one, and it is what the verifier and `conformance/` are built against.
+The hard binding is **not** the same structure as a media asset's: §9.2.4 says a **data hash assertion** shall be used for text embedded this way. That matters for us in one direction only — it is what covers our assertion, so tampering with a receipt inside a manifest breaks the manifest, which is the property §5 above depends on.
+
+**2 — No registration.** See §2. Entity namespaces are self-allocated from a domain you control, and only `c2pa` is reserved.
+
+**3 — `__1`, `__2`, and no `__0`.** See §4. §6.4 gives the exact rule, so that section is now exact rather than descriptive.
+
+**4 — Embedded is available; sidecar is not forced.** §A.7.1 exists precisely for "content intended for copy-paste operations across different systems", so a manifest can ride inside the answer text itself and survive being pasted into an email. Emit may therefore deliver over HTTP either way. Note the cost before choosing it: the variation-selector encoding inflates the payload substantially and is invisible in a diff, so a receipt embedded this way is one nobody will notice has been stripped. For a machine-to-machine path, the sidecar COSE_Sign1 remains the honest default.
+
+**5 — The two timestamps have different subjects, and ours governs the ordering check.** C2PA's is an RFC 3161 countersignature over the *claim signature* (§10.3.2.5), attesting when that signature existed; a manifest carries at most one. Ours attests when the corpus root entered the log. They cannot contradict each other because they are not about the same event, and if they appear to, the log's is the one that matters: it is signed by a party outside the system under audit, while a claim timestamp attests only to the producing application's own signature.
+
+One concrete consequence. C2PA represents time in assertions as **CBOR tag 1, in seconds** (§6.9). A receipt carried as an assertion keeps its own integer-millisecond fields and MUST NOT be converted, because `canonicalization.md` clause 6.3 exists to make the ordering comparison an integer comparison, and rounding to seconds would make two events a few hundred milliseconds apart compare equal — in the one check the whole format turns on.
+
+**What remains before this is normative** is not a question about the specification. It is that nobody has yet emitted a manifest carrying this assertion and validated it with a generic C2PA validator. §5 makes three predictions about what such a validator does; until one has been run, they are predictions.
 
 ## 8. What this profile refuses to do
 

@@ -32,9 +32,10 @@ SOURCEMARK_REKOR=https://rekor.sigstore.dev \
 |---|---|---|
 | `test_conformance` | 29 | Reproduces every value in `spec/examples/derivation.txt`, byte for byte |
 | `test_pipeline` | 27 | The Phase 0 acceptance criteria, end to end |
-| `test_regressions` | 25 | One per defect found by adversarial probing |
+| `test_regressions` | 27 | One per defect found by adversarial probing |
 | `test_pgvector` | 19 | A live Postgres: migrate, anchor, emit, detect an `UPDATE`, tear down |
 | `test_rekor_live` | 9 | Our understanding of Rekor's format, against production, read-only |
+| `test_rekor_integration` | 10 | Real submissions to a **local** Rekor on Trillian, end to end |
 
 The two live suites skip with a printed reason when their dependency is absent. A skip that is silent is a test that passes because it never ran.
 
@@ -54,7 +55,7 @@ The two live suites skip with a printed reason when their dependency is absent. 
 
 ## Two things to know before using it
 
-**`InProcessLog` is not a transparency log.** It builds a real RFC 6962 tree and produces real proofs, signed with a key this process holds. That proves you are consistent with yourself and nothing else. The entire argument for a transparency log is that somebody other than the issuer signs the tree head. Use `RekorLog` for that — but note that no corpus root has been submitted to the public log yet. The client works and the format is verified against production read-only; the first real submission is permanent and should be deliberate.
+**`InProcessLog` is not a transparency log.** It builds a real RFC 6962 tree and produces real proofs, signed with a key this process holds. That proves you are consistent with yourself and nothing else. The entire argument for a transparency log is that somebody other than the issuer signs the tree head. Use `RekorLog` for that. It is exercised against a real Rekor on a real Trillian, and the integration suite refuses by hostname to submit to a public log — a submission cannot be withdrawn, and the guard exists because the failure being prevented is somebody reusing the variable from the read-only suite.
 
 **`LocalVersionKeys` cannot demonstrate erasure.** It keeps version keys in a JSON file, and a filesystem backup silently resurrects a key that erasure was supposed to destroy. Use a KMS-backed `VersionKeys` anywhere the erasure property is being claimed.
 

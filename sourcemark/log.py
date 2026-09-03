@@ -185,11 +185,12 @@ class RekorLog:
 
     # -- HTTP ---------------------------------------------------------------
 
-    def _request(self, path: str, body: bytes | None = None) -> bytes:
+    def _request(self, path: str, body: bytes | None = None,
+                 accept: str = "application/json") -> bytes:
         request = urllib.request.Request(
             f"{self.url}{path}",
             data=body,
-            headers={"Accept": "application/json",
+            headers={"Accept": accept,
                      **({"Content-Type": "application/json"} if body else {})},
             method="POST" if body else "GET",
         )
@@ -210,7 +211,15 @@ class RekorLog:
         with itself, which is not a claim anyone needs.
         """
         if self._public_key_pem is None:
-            self._public_key_pem = self._request("/api/v1/log/publicKey")
+            # This endpoint answers PEM, and honours Accept: asking for JSON
+            # gets a JSON-quoted string that fails to parse as a key much
+            # later, inside the verifier, with no hint of where it came from.
+            self._public_key_pem = self._request(
+                "/api/v1/log/publicKey", accept="application/x-pem-file")
+        if not self._public_key_pem.lstrip().startswith(b"-----BEGIN"):
+            raise LogError(
+                f"{self.url}/api/v1/log/publicKey did not return PEM: "
+                f"{self._public_key_pem[:60]!r}")
         return self._public_key_pem
 
     def log_id(self) -> bytes:

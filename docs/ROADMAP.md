@@ -19,12 +19,14 @@ If the answer is no, nothing later matters. If it is yes, the rest is adapters.
 | 3 | pgvector adapter | Five metadata fields written at ingest, read at query, no schema migration beyond `ALTER TABLE ADD COLUMN` | **done** — 19 checks against a live Postgres 18, including teardown |
 | 4 | Docling coordinate adapter | Page, bbox, byte range normalized from Docling output | **done** |
 | 5 | `sourcemark verify` — CLI, offline (ships from [`sourcemark-verify`](https://github.com/advisely/sourcemark-verify)) | Seven distinct outcomes per `ARCHITECTURE.md §7`, not a boolean | **done** — all 16 conformance vectors, plus an offline suite that fails if a socket opens |
-| 6 | Transparency log integration | Roots submitted to Rekor or a Trillian instance; signed tree heads retrievable | **client done, never submitted** — see below |
+| 6 | Transparency log integration | Roots submitted to Rekor or a Trillian instance; signed tree heads retrievable | **done** — real submissions to Rekor v1.3.6 on Trillian, verified end to end |
 | 7 | One design partner, real corpus | Their documents, their store, their auditor | not started |
 
-**On deliverable 6.** `RekorLog` implements Rekor's v1 API, the format is specified (`canonicalization.md` 5.2), the verifier handles it, and four conformance vectors cover it. Every assumption about the format is checked against production Rekor read-only, which is what found that real entries carry an X.509 certificate where a public key was expected.
+**On deliverable 6.** Corpus roots are submitted to a real Rekor v1.3.6 backed by a real Trillian, the returned inclusion proof and note checkpoint go into a receipt, and the independent verifier in the other repository reaches `VERIFIED` on it. That is the whole loop.
 
-What has not happened is a submission. Writing to a public append-only log is irreversible and permanent, so the first real entry should be a deliberate act with a real corpus behind it, not a side effect of a test run. The remaining work is a decision, not code.
+The submissions go to a **local** Rekor, and the test refuses by hostname to point at a public one. Both halves are needed and neither substitutes for the other: `test_rekor_integration` asks whether our client works against a real server, and `test_rekor_live` asks, read-only against production, whether the format is still what the profile says. Answering the second question by writing to production would put permanent test data in a log that belongs to everybody.
+
+Choosing a public log to anchor a real corpus to is now a deployment decision rather than an engineering one.
 
 The `spec/` vectors are now load-bearing rather than illustrative: `sourcemark/tests/test_conformance.py` recomputes every value in `spec/examples/derivation.txt` with a separate implementation and asserts byte equality, signatures included. That is the acceptance criterion for deliverable 1 pointed inward, and it is the reason deliverable 5 can be written in another repository against the document alone.
 

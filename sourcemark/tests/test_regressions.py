@@ -190,6 +190,30 @@ def main() -> int:
     check("and does not log a second root for the same batch", log2.size == size_before + 1)
     check("every chunk landed", len(broken.rows) == len(chunks))
 
+    print("\nI. A log key endpoint that answers JSON is caught at the client")
+    from ..log import LogError, RekorLog
+    from ..keys import Es256Signer
+
+    class StubRekor(RekorLog):
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+            self.signer = Es256Signer.from_seed(b"stub")
+            self.url, self.timeout, self._public_key_pem = "http://stub", 1.0, None
+
+        def _request(self, path, body=None, accept="application/json"):
+            return self._payload
+
+    # Rekor's key endpoint honours Accept. Asking for JSON returns a
+    # JSON-QUOTED string that is not a PEM, and the failure used to surface
+    # much later inside the verifier with no hint of where it came from.
+    quoted = b'"-----BEGIN PUBLIC KEY-----\\nMFkw...\\n-----END PUBLIC KEY-----\\n"'
+    check("a JSON-quoted key is rejected at the client, by name",
+          raises(LogError, StubRekor(quoted).public_key_pem))
+    real = (b"-----BEGIN PUBLIC KEY-----\n"
+            b"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE\n-----END PUBLIC KEY-----\n")
+    check("and a real PEM passes through untouched",
+          StubRekor(real).public_key_pem() == real)
+
     print("\nH. One document version cannot occupy two leaves of one corpus tree")
     anchor2 = Anchor(store=MemoryStore(), log=log2,
                      keys=LocalVersionKeys(tmp / "dup.json", quiet=True))

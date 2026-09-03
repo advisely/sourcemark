@@ -10,7 +10,7 @@
 | [`canonicalization.md`](canonicalization.md) | normative | Byte-exact encoding and every hash preimage |
 | [`verification.md`](verification.md) | normative | The seven outcomes as an ordered decision procedure |
 | [`receipt.schema.json`](receipt.schema.json) | non-normative | JSON projection, for debugging and human reading |
-| [`c2pa-profile.md`](c2pa-profile.md) | draft | The C2PA v2.3 assertion profile — open items in its §7 |
+| [`c2pa-profile.md`](c2pa-profile.md) | draft | The C2PA v2.3 assertion profile — its five open items are resolved against the published text; §7 |
 | [`examples/`](examples/) | — | A worked example, reproducible from this directory alone |
 
 `receipt.cddl` and `canonicalization.md` are both normative and neither is sufficient. A schema says which fields exist; it does not say what a verifier hashes. Two implementations can satisfy the grammar and still disagree on every digest in the receipt.
