@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sourcemark-mcp"
+version = "0.1.0.dev0"
+description = "Sourcemark receipts inside any MCP host"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+# No dependencies at all. The MCP stdio surface for a tools-and-resources
+# server is small enough to own, and the official SDK pulls in opentelemetry
+# transitively -- which is the wrong thing to ship inside a provenance tool
+# whose verifier promises "no telemetry, ever".
+dependencies = []
+
+[project.optional-dependencies]
+# The verifier is optional and separate on purpose: it is the component you
+# are asked NOT to trust us about, so it ships from its own repository with
+# its own history and its own releases.
+verify = ["sourcemark-verify>=0.1"]
+
+[project.scripts]
+sourcemark-mcp = "sourcemark_mcp.server:main"
+
+[project.urls]
+Specification = "https://github.com/advisely/sourcemark"
+Verifier = "https://github.com/advisely/sourcemark-verify"
+
+[tool.setuptools.packages.find]
+include = ["sourcemark_mcp*"]

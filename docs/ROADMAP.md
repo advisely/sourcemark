@@ -52,8 +52,8 @@ Eight weeks and one salary. The v1 equivalent was six months and a team, spent o
 - TypeScript SDK alongside Python
 - Adapters: Qdrant, Weaviate, Elasticsearch, MongoDB Atlas
 - Parser adapters: Reducto, Unstructured, Azure Document Intelligence
-- **MCP delivery** — receipts inside resource-link annotations, so any MCP host gets them with no integration
-- WASM verifier for in-browser checking; GitHub Action for CI
+- ~~**MCP delivery**~~ — **shipped early**, in `mcp/`. Receipts arrive as MCP resource links, and `verify_receipt` needs no corpus at all, which is the half that reaches recipients rather than customers
+- WASM verifier for in-browser checking; ~~GitHub Action for CI~~ **shipped early**, `advisely/sourcemark-verify@v0`
 - Hosted log with published tree heads and third-party witnessing
 - Cryptographic-erasure path implemented end to end (`SPEC.md §7`)
 

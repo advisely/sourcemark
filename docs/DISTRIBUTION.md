@@ -132,9 +132,9 @@ This is the `gpg --verify` / Certificate Transparency / npm-provenance-badge pat
 | **The tamper demo** — anchor a public corpus, edit one source, watch the verifier go red | Fifteen seconds, no slides, and it is the entire product |
 | **`verify.sourcemark.dev`** — drag, drop, verdict, nothing uploaded | The surface used by non-customers, which is where the loop closes |
 | **One PR each to LangChain and LlamaIndex** | Their reach, our five lines. Apache-2.0 makes this possible at all |
-| **MCP server** | Every Claude Code / Cursor user gets receipts by editing one config block |
+| **MCP server** | **Built** (`mcp/`). Every Claude Code / Cursor user gets receipts by editing one config block — and `verify_receipt` works with no corpus, so it reaches recipients, not just customers |
 | **Publish the log's tree heads from day one** | A 2026 tree head cannot be manufactured in 2028. The log's age is the one asset nobody catches up to |
-| **Conformance vectors + a second implementation** | A format with two implementations is a standard; with one it is a product |
+| **Conformance vectors + a second implementation** | **Built.** 16 vectors, and a verifier written from the spec alone in its own repository |
 | **Take the C2PA profile to the working group** | Membership, not a fork. Turns a startup into ecosystem infrastructure |
 
 ### Where the loop breaks, honestly
