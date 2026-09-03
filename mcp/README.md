@@ -50,7 +50,9 @@ Every reply states it: a receipt establishes **where text came from**. Whether t
 ## Tests
 
 ```bash
-python3 mcp/tests_mcp.py     # 28 checks, over the wire
+python3 mcp/tests_mcp.py     # 28 checks over the wire, 21 without sourcemark-verify
 ```
+
+The verifier-dependent checks skip loudly rather than failing when the optional package is absent, and the tool's refusal is checked instead. A suite that goes red over a missing optional dependency teaches people to ignore red.
 
 No MCP client library — the point is to exercise the wire format, and a client sharing assumptions with the server would test the assumptions instead of the protocol.

@@ -82,10 +82,22 @@ def main() -> int:
           {"cacheScope", "ttlMs", "resultType"} <= set(t))
 
     print("\nverify_receipt against the conformance vectors")
+    try:
+        import sourcemark_verify  # noqa: F401
+        have_verifier = True
+    except ImportError:
+        have_verifier = False
+        # Skip, loudly. sourcemark-verify is an OPTIONAL dependency, and a
+        # suite that goes red over a missing optional dependency teaches
+        # people to ignore red. The tool's own refusal is checked below
+        # instead, which is the behaviour that actually matters when it is
+        # absent.
+        print("  SKIP  sourcemark-verify is not installed; "
+              "`pip install sourcemark-verify` to run these")
     key = str(CONF / "log-public-key.der")
-    for name, expected in [("valid", "VERIFIED"), ("tampered", "TAMPERED"),
-                           ("forged", "FORGED"), ("erased", "ERASED"),
-                           ("malformed-truncated", "MALFORMED")]:
+    for name, expected in ([("valid", "VERIFIED"), ("tampered", "TAMPERED"),
+                            ("forged", "FORGED"), ("erased", "ERASED"),
+                            ("malformed-truncated", "MALFORMED")] if have_verifier else []):
         r = call(server, "tools/call", {"name": "verify_receipt", "arguments": {
             "receipt_path": str(CONF / "vectors" / name / "receipt.cbor"),
             "log_key_path": key,
@@ -100,6 +112,10 @@ def main() -> int:
     r = call(server, "tools/call", {"name": "verify_receipt", "arguments": {
         "receipt_path": str(CONF / "vectors/valid/receipt.cbor"), "log_key_path": key,
         "text_path": str(CONF / "vectors/valid/text.txt")}})
+    if not have_verifier:
+        check("without the verifier, the tool refuses and names the package",
+              "error" in r and "sourcemark-verify" in r["error"]["message"])
+        check("and it says how to install it", "pip install" in r["error"]["message"])
     if "result" in r:
         body = r["result"]
         text = body["content"][0]["text"].lower()
@@ -113,9 +129,11 @@ def main() -> int:
               "custody claim" in text and "separate question" in text)
 
     print("\nRefusals")
-    r = call(server, "tools/call", {"name": "verify_receipt", "arguments": {
-        "receipt_path": str(CONF / "vectors/valid/receipt.cbor"), "log_key_path": key}})
-    check("no cited text is refused, by name", "error" in r and "cited text" in r["error"]["message"])
+    if have_verifier:
+        r = call(server, "tools/call", {"name": "verify_receipt", "arguments": {
+            "receipt_path": str(CONF / "vectors/valid/receipt.cbor"), "log_key_path": key}})
+        check("no cited text is refused, by name",
+              "error" in r and "cited text" in r["error"]["message"])
     r = call(server, "tools/call", {"name": "search", "arguments": {"query": "x"}})
     check("search without a corpus is refused, not faked", "error" in r)
     r = call(server, "tools/call", {"name": "nope", "arguments": {}})
