@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sourcemark"
+version = "0.1.0.dev0"
+description = "Anchor and emit cryptographic retrieval receipts"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+# One runtime dependency, and it is the signing library. Deterministic CBOR
+# is implemented here rather than pulled in: a canonicalization rule that
+# delegates to a library specifies the library's behaviour, not the format's.
+dependencies = ["cryptography>=41"]
+
+[project.optional-dependencies]
+pgvector = ["psycopg[binary]>=3.1"]
+
+[project.urls]
+Specification = "https://github.com/advisely/sourcemark"
+Verifier = "https://github.com/advisely/sourcemark-verify"
+
+[tool.setuptools.packages.find]
+include = ["sourcemark*"]

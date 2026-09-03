@@ -423,7 +423,7 @@ Same underlying insight — provenance belongs at the retrieval layer — expres
 
 | Dimension | Figure | Note |
 |---|---|---|
-| Storage overhead per chunk | 300–600 bytes | `leaf_hash` 32B, document + corpus paths ~20×32B at 1M chunks, ids and coords. The salt is derived, not stored |
+| Storage overhead per chunk | 300–600 bytes | `leaf_hash` 32B, commitment 32B, document path ~20×32B at 1M chunks, coords. The corpus and log proofs are stored once per document version and once per batch, not per chunk; the salt is derived, not stored |
 | Overhead on a 10M-chunk corpus | ~4–6 GB | In the customer's existing store, in existing columns |
 | Anchor throughput | ~50k leaves/sec/core | SHA-256 bound; Merkle build is linear |
 | Emit added latency | < 2 ms p95 | Metadata is already in the result row; signing is one Ed25519 op |

@@ -20,36 +20,44 @@ The verifier is a separate, dependency-light package on purpose. A recipient ins
 You already parse, chunk, embed and insert. Add one call.
 
 ```python
-from sourcemark import Anchor
-from sourcemark.adapters import PgVector, Docling
+from sourcemark import Anchor, Document
+from sourcemark.adapters.stores.pgvector import PgVector
+from sourcemark.adapters.parsers import docling
 
-anchor = Anchor(
+with Anchor(
     store=PgVector(conn),
-    log="https://log.sourcemark.dev/2026",   # or your own Trillian
-    keyring="kms://acme/sourcemark",
-)
-
-for doc in corpus:
-    parsed = docling.convert(doc)              # already yours
-    chunks = Docling.chunks(parsed)            # already yours
-    embed_and_insert(chunks)                   # already yours
-    anchor.commit(doc.version_id, chunks)      # ← the only new line
+    log=rekor,                       # or your own Trillian
+    keys=kms,                        # holds the per-version keys erasure destroys
+    parser="docling@2.3.1",
+) as anchor:
+    for doc in corpus:
+        parsed = docling_converter.convert(doc)     # already yours
+        chunks = docling.chunks(parsed.texts)       # normalize coordinates
+        embed_and_insert(chunks)                    # already yours
+        anchor.commit(Document(...), chunks)        # ← the only new line
 ```
 
-`commit()` derives a salt per chunk, commits to the text with HMAC, folds the chunks into a document tree and the documents into a corpus tree, submits that one root, and writes five metadata fields back beside your chunks. One migration, once:
+The context manager is not decoration. Leaving the last batch unflushed leaves every chunk in it anchored but not yet provable, and a batch silently abandoned at process exit is indistinguishable from a corpus that was never anchored at all.
+
+`commit()` derives a salt per chunk, commits to the text with HMAC, and folds the chunks into a document tree. `flush()` — which the context manager calls for you — folds those documents into a corpus tree, submits that one root, and writes the proofs back. One migration, once:
 
 ```sql
 ALTER TABLE chunks
-  ADD COLUMN sm_leaf          bytea,   -- this chunk's leaf hash
-  ADD COLUMN sm_doc_proof     jsonb,   -- index, size, path: chunk → doc_root
-  ADD COLUMN sm_corpus_proof  jsonb,   -- index, size, path: document → corpus_root
-  ADD COLUMN sm_log_entry     text,    -- the log entry that corpus root landed in
-  ADD COLUMN sm_salt_ref      text;    -- KMS handle to the version key
+  ADD COLUMN sm_leaf        bytea,   -- this chunk's leaf hash
+  ADD COLUMN sm_commitment  bytea,   -- HMAC(salt, text)
+  ADD COLUMN sm_doc_proof   jsonb,   -- index, size, path: chunk → doc_root
+  ADD COLUMN sm_dv          text,    -- which document version this chunk is in
+  ADD COLUMN sm_location    jsonb;   -- byte_range, page, bbox, paragraph
+
+CREATE TABLE sourcemark_versions (...);   -- corpus proof + salt_ref, per document version
+CREATE TABLE sourcemark_batches  (...);   -- log proof + signed tree head, per batch
 ```
 
-That is the entire schema footprint. No new service, no new store.
+Five columns on your table, plus two small side tables — and the side tables are what make "300–600 bytes per chunk" true rather than aspirational. A log proof is a signed tree head plus ~20 digests and is **identical for every chunk in a batch**; a corpus proof is identical for every chunk in a document version. Copying them onto each chunk row would cost roughly 900 bytes per chunk of exact duplicates. Storing each proof at the level it actually varies is the difference between a claim and a marketing number.
 
-Note what is *not* in that table: the salt. It is re-derived from the version key at emit time, which is what makes erasure a single key deletion rather than a scan over every row — and what stops a database dump from being an opening for every chunk in it.
+Note what is in none of those tables: **the salt.** It is re-derived from the version key when a receipt is emitted, which is what makes erasure a single key deletion rather than a scan over every row — and what stops a database dump from being an opening for every chunk in it.
+
+Removing Sourcemark is `DROP` on five columns and two tables. Retrieval is untouched, and receipts already issued keep verifying, because they verify against a public log rather than against this database.
 
 ---
 
@@ -58,7 +66,13 @@ Note what is *not* in that table: the salt. It is re-derived from the version ke
 ```python
 from sourcemark import Emit
 
-retriever = Emit(your_retriever, store=PgVector(conn))
+retriever = Emit(
+    your_retriever,
+    store=PgVector(conn),
+    keys=kms,                        # to derive salts; see below
+    signer=issuer_key,
+    retriever_name="pgvector@0.8.1",
+)
 
 results = retriever.search(
     "What is the escalation path for a Class II deviation?", k=5
@@ -66,10 +80,12 @@ results = retriever.search(
 
 for r in results:
     print(r.text)                       # unchanged — same ranking, same results
-    r.receipt.save(f"receipt-{r.chunk_id}.cbor")
+    r.save(f"receipt-{r.chunk_id}.cbor")
 ```
 
-`Emit` does not re-rank, re-embed or filter. It reads back what `Anchor` wrote and signs it. Ranking behaviour is bit-identical to the retriever you passed in — that is a test in the suite, not a promise.
+`Emit` does not re-rank, re-embed or filter. It reads back what `Anchor` wrote and signs it. The test asserts something stronger than "same order": the wrapped call returns *the retriever's own result objects*, unmodified, in the order it returned them. A result whose chunk was never anchored comes back carrying `receipt_unavailable` rather than being dropped, because silently dropping it would change the answer.
+
+**Why `keys` is there, and what it costs.** A receipt has to carry its chunk's salt, or an auditor with no KMS access cannot run the content-binding check. But persisting salts beside the chunks would defeat erasure entirely — destroying the version key would leave every opening sitting in the database. So Emit derives salts at query time and caches them in process, which makes the cache TTL the erasure latency: a salt cached before an erasure stays usable until it expires. `emit.forget(document_version_id)` makes it immediate on that process. There is no way for a process to learn about an erasure by itself; polling the KMS would put the network back on the query path.
 
 ### Or via MCP, with no code at all
 
@@ -145,7 +161,7 @@ Anchor a well-known public corpus, alter one source file, watch the verifier tur
 ## 6. What it does not change
 
 - Your retrieval quality — `Emit` is a pass-through
-- Your storage — five columns beside chunks you already store
+- Your storage — five columns beside chunks you already store, plus two small side tables
 - Your latency — one Ed25519 signature, under 2 ms p95; no network call on the query path
 - Your privacy posture — a 32-byte root leaves the boundary, nothing else
 - Your exit — stop calling `commit()` and everything keeps working. Existing receipts keep verifying forever, because they verify against a public log rather than against us.
@@ -156,4 +172,4 @@ Anchor a well-known public corpus, alter one source file, watch the verifier tur
 
 **Adopting.** Anchor forward from today; backfill historical corpus segments in the background. Chunks that predate anchoring return an explicit `receipt_unavailable` with the reason and the remedy — never a stub that resembles a valid receipt.
 
-**Leaving.** Drop the five columns. Retrieval is untouched. Receipts already issued remain verifiable by anyone, permanently, with no involvement from us or from you. A trust product whose artifacts die when the customer churns has not earned the word.
+**Leaving.** Drop the five columns and the two side tables. Retrieval is untouched. Receipts already issued remain verifiable by anyone, permanently, with no involvement from us or from you. A trust product whose artifacts die when the customer churns has not earned the word.
