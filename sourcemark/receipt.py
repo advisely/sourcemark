@@ -141,7 +141,10 @@ def build(
                     "tree_size": anchoring.log_proof.tree_size,
                     "path": list(anchoring.log_proof.path),
                     "root_hash": anchoring.log_proof.root_hash,
+                    "head_format": anchoring.log_proof.head_format,
                     "signed_tree_head": anchoring.log_proof.signed_tree_head,
+                    **({"entry_body": anchoring.log_proof.entry_body}
+                       if anchoring.log_proof.entry_body is not None else {}),
                 },
             },
         },
@@ -190,7 +193,12 @@ def unavailable(reason: str, *, remedy: str | None = None, state: str | None = N
     shaped like a passing one is worse than no receipt at all, because the
     thing reading it will not notice.
     """
-    states = {"PENDING", "NOT_ANCHORED", "ERASED", "LOG_UNREACHABLE"}
+    # TEXT_MISMATCH and KEY_UNAVAILABLE are branched on differently by a
+    # caller -- one means "investigate your database", the other means "retry
+    # once the KMS is back" -- which is the whole reason `state` exists rather
+    # than making callers parse `reason`.
+    states = {"PENDING", "NOT_ANCHORED", "ERASED", "LOG_UNREACHABLE",
+              "TEXT_MISMATCH", "KEY_UNAVAILABLE"}
     if state is not None and state not in states:
         raise ValueError(f"state must be one of {sorted(states)}, got {state!r}")
     body: dict[str, Any] = {"reason": reason}

@@ -138,19 +138,44 @@ merkle_proof = {
 log_proof = {
   url              : tstr,
   log_id           : digest,   ; SHA-256 over the log key's SPKI DER
-  entry_profile    : "sourcemark.corpus.v1",
+  entry_profile    : entry_profile,
   entry_id         : tstr,
   leaf_index       : uint,
   tree_size        : uint,
   path             : [* digest],
   root_hash        : digest,
-  signed_tree_head : bstr .cbor COSE_Sign1_STH,
+  head_format      : head_format,
+  signed_tree_head : bstr,
+  ? entry_body     : bstr,     ; external profiles only -- see below
 }
 
-; Note what log_proof does NOT contain: the bytes hashed into the log leaf.
-; The verifier recomputes them from corpus_root and committed_at
-; (canonicalization.md 5.1). A receipt that supplies them supplies an input
-; to the check that is supposed to constrain it.
+; A Sourcemark-operated log and a public one like Rekor differ in two ways
+; that a verifier cannot guess, so the receipt states both rather than
+; sniffing them out of the bytes. Inferring a format from its first byte
+; works until the day it does not, and that day arrives during an audit.
+
+entry_profile = "sourcemark.corpus.v1"          ; leaf is recomputed
+              / "rekor.hashedrekord.v0.0.1"     ; leaf is over entry_body
+
+head_format   = "cose.sth.v1"                   ; bstr .cbor COSE_Sign1_STH
+              / "note.checkpoint.v1"            ; a signed note, utf-8 text
+
+; `entry_body` MUST be absent under "sourcemark.corpus.v1" and present under
+; every external profile. The distinction is not cosmetic.
+;
+; Under our own profile the verifier RECOMPUTES the leaf bytes from
+; corpus_root and committed_at (canonicalization.md 5.1), so the issuer never
+; chooses what gets hashed. A receipt that supplies them supplies an input to
+; the check meant to constrain it, and is rejected.
+;
+; A public log does not let us choose its leaf format. Rekor hashes its own
+; canonicalized entry, which embeds a signature over the artefact digest --
+; not something recomputable from corpus_root. So the body travels with the
+; receipt, and the constraint is restored a level up: the verifier MUST check
+; that the artefact digest inside entry_body equals SHA-256 of the recomputed
+; entry data (canonicalization.md 5.2). The body is then no more free than
+; the recomputed form; only its irrelevant parts -- the submitter's signature
+; and key -- are unpinned, and neither affects what was attested.
 
 COSE_Sign1_STH = #6.18([
   protected   : bstr .cbor sth_protected,
@@ -217,6 +242,23 @@ receipt_unavailable = {
   receipt_unavailable : {
     reason   : tstr,
     ? remedy : tstr,
-    ? state  : "PENDING" / "NOT_ANCHORED" / "ERASED" / "LOG_UNREACHABLE",
+    ? state  : unavailable_state,
   }
 }
+
+; A closed set, so a caller branches on `state` instead of parsing `reason`,
+; which is prose written for a human. Each of these needs a DIFFERENT
+; response, which is the test for whether it deserves its own name:
+;
+;   PENDING          anchored, not yet in a logged root -- retry shortly
+;   NOT_ANCHORED     no anchoring record -- re-anchor that corpus segment
+;   ERASED           the version key was destroyed -- terminal, and correct
+;   LOG_UNREACHABLE  the log could not be reached -- retry, fix nothing
+;   TEXT_MISMATCH    the retrieved text is not what was anchored -- the
+;                    emitter refused to notarize a modified chunk. Investigate
+;                    the store; do not retry, it will keep refusing.
+;   KEY_UNAVAILABLE  the version key is absent but NOT erased -- a KMS fault.
+;                    Distinct from ERASED because ERASED is a correct terminal
+;                    state and this is an outage to be fixed and retried.
+unavailable_state = "PENDING" / "NOT_ANCHORED" / "ERASED" / "LOG_UNREACHABLE"
+                  / "TEXT_MISMATCH" / "KEY_UNAVAILABLE"

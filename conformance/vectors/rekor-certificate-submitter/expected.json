@@ -1,0 +1,5 @@
+{
+  "outcome": "VERIFIED",
+  "exit_status": 0,
+  "why": "Identical to rekor-valid except that publicKey.content holds a certificate rather than a bare public key, which is what the production log almost always contains. A verifier that only parses the bare form reports MALFORMED or FORGED here while passing every other vector in this directory."
+}

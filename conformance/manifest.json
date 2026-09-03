@@ -1,0 +1,172 @@
+{
+  "spec_version": "0.1",
+  "log_public_key": "log-public-key.der",
+  "log_id": "sha256:244ca852b51451ab756b72dee024e6d2b2079396723f0e48e3b6976efa48b486",
+  "issuer_public_key": "issuer-public-key.der",
+  "rekor_log_public_key": "rekor-log-public-key.der",
+  "source": "source.bin",
+  "source_note": "Every vector's byte_range points into source.bin, so the --source path is exercisable from this directory. The vectors whose text was altered will not re-derive from it, which is the point.",
+  "note": "Every vector is verified against log-public-key.der. Vectors are adversarial: several would be refused by a well-behaved emitter, which is precisely why a verifier must not assume one.",
+  "vectors": [
+    {
+      "name": "valid",
+      "outcome": "VERIFIED",
+      "exit_status": 0,
+      "receipt": "vectors/valid/receipt.cbor",
+      "text": "vectors/valid/text.txt",
+      "source_verifiable": true,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "erased",
+      "outcome": "ERASED",
+      "exit_status": 4,
+      "receipt": "vectors/erased/receipt.cbor",
+      "text": "vectors/erased/text.txt",
+      "source_verifiable": true,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "tampered",
+      "outcome": "TAMPERED",
+      "exit_status": 1,
+      "receipt": "vectors/tampered/receipt.cbor",
+      "text": "vectors/tampered/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "forged",
+      "outcome": "FORGED",
+      "exit_status": 1,
+      "receipt": "vectors/forged/receipt.cbor",
+      "text": "vectors/forged/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "backdated",
+      "outcome": "BACKDATED",
+      "exit_status": 1,
+      "receipt": "vectors/backdated/receipt.cbor",
+      "text": "vectors/backdated/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "pending",
+      "outcome": "PENDING",
+      "exit_status": 3,
+      "receipt": "vectors/pending/receipt.cbor",
+      "text": "vectors/pending/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "unsigned-bad-signature",
+      "outcome": "UNSIGNED",
+      "exit_status": 1,
+      "receipt": "vectors/unsigned-bad-signature/receipt.cbor",
+      "text": "vectors/unsigned-bad-signature/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "unsigned-wrong-log",
+      "outcome": "UNSIGNED",
+      "exit_status": 1,
+      "receipt": "vectors/unsigned-wrong-log/receipt.cbor",
+      "text": "vectors/unsigned-wrong-log/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "malformed-truncated",
+      "outcome": "MALFORMED",
+      "exit_status": 2,
+      "receipt": "vectors/malformed-truncated/receipt.cbor",
+      "text": "vectors/malformed-truncated/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "malformed-indefinite-length",
+      "outcome": "MALFORMED",
+      "exit_status": 2,
+      "receipt": "vectors/malformed-indefinite-length/receipt.cbor",
+      "text": "vectors/malformed-indefinite-length/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "malformed-trailing-bytes",
+      "outcome": "MALFORMED",
+      "exit_status": 2,
+      "receipt": "vectors/malformed-trailing-bytes/receipt.cbor",
+      "text": "vectors/malformed-trailing-bytes/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    },
+    {
+      "name": "rekor-valid",
+      "outcome": "VERIFIED",
+      "exit_status": 0,
+      "receipt": "vectors/rekor-valid/receipt.cbor",
+      "text": "vectors/rekor-valid/text.txt",
+      "source_verifiable": true,
+      "log_public_key": "rekor-log-public-key.der",
+      "reproducible": false
+    },
+    {
+      "name": "rekor-unpinned-body",
+      "outcome": "FORGED",
+      "exit_status": 1,
+      "receipt": "vectors/rekor-unpinned-body/receipt.cbor",
+      "text": "vectors/rekor-unpinned-body/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "rekor-log-public-key.der",
+      "reproducible": false
+    },
+    {
+      "name": "rekor-certificate-submitter",
+      "outcome": "VERIFIED",
+      "exit_status": 0,
+      "receipt": "vectors/rekor-certificate-submitter/receipt.cbor",
+      "text": "vectors/rekor-certificate-submitter/text.txt",
+      "source_verifiable": true,
+      "log_public_key": "rekor-log-public-key.der",
+      "reproducible": false
+    },
+    {
+      "name": "rekor-checkpoint-mismatch",
+      "outcome": "UNSIGNED",
+      "exit_status": 1,
+      "receipt": "vectors/rekor-checkpoint-mismatch/receipt.cbor",
+      "text": "vectors/rekor-checkpoint-mismatch/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "rekor-log-public-key.der",
+      "reproducible": false
+    },
+    {
+      "name": "internal-with-entry-body",
+      "outcome": "MALFORMED",
+      "exit_status": 2,
+      "receipt": "vectors/internal-with-entry-body/receipt.cbor",
+      "text": "vectors/internal-with-entry-body/text.txt",
+      "source_verifiable": false,
+      "log_public_key": "log-public-key.der",
+      "reproducible": true
+    }
+  ]
+}

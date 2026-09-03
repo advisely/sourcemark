@@ -1,0 +1,5 @@
+{
+  "outcome": "VERIFIED",
+  "exit_status": 0,
+  "why": "The same corpus root, anchored to a log that hashes its own leaf format and signs a note instead of a COSE tree head. Everything below the log is identical to the valid vector; only the last hop differs."
+}

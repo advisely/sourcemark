@@ -13,7 +13,7 @@
 | [`emit.py`](emit.py) | Sign at query time, as a pass-through wrapper |
 | [`receipt.py`](receipt.py) | Receipt assembly, signing, and the JSON projection |
 | [`keys.py`](keys.py) | Version keys (erasure) and the receipt signing key |
-| [`log.py`](log.py) | Transparency log clients |
+| [`log.py`](log.py) | Transparency log clients — `InProcessLog` for tests, `RekorLog` for Sigstore |
 | [`adapters/stores/pgvector.py`](adapters/stores/pgvector.py) | The Phase 0 store adapter |
 | [`adapters/parsers/docling.py`](adapters/parsers/docling.py) | The Phase 0 parser adapter |
 
@@ -22,10 +22,21 @@ Python only in Phase 0. TypeScript lands in Phase 1.
 ## Running the tests
 
 ```bash
-python3 -m sourcemark.tests               # both suites
-python3 -m sourcemark.tests.test_conformance
-python3 -m sourcemark.tests.test_pipeline
+python3 -m sourcemark.tests                       # every suite
+SOURCEMARK_TEST_DSN=postgresql:///sourcemark_test \
+SOURCEMARK_REKOR=https://rekor.sigstore.dev \
+  python3 -m sourcemark.tests                     # including the two live ones
 ```
+
+| Suite | Checks | What it settles |
+|---|---|---|
+| `test_conformance` | 29 | Reproduces every value in `spec/examples/derivation.txt`, byte for byte |
+| `test_pipeline` | 27 | The Phase 0 acceptance criteria, end to end |
+| `test_regressions` | 25 | One per defect found by adversarial probing |
+| `test_pgvector` | 19 | A live Postgres: migrate, anchor, emit, detect an `UPDATE`, tear down |
+| `test_rekor_live` | 9 | Our understanding of Rekor's format, against production, read-only |
+
+The two live suites skip with a printed reason when their dependency is absent. A skip that is silent is a test that passes because it never ran.
 
 `test_conformance` is the one that matters. It recomputes every value in [`spec/examples/derivation.txt`](../spec/examples/derivation.txt) with this package — a separate implementation from the one that produced them — and asserts byte equality, including the signed COSE receipts and the JSON projection. If it passes, the spec's vectors are reproducible by something other than the script that wrote them, which is the only evidence that the canonicalization rules are written down rather than merely implemented.
 
@@ -38,12 +49,12 @@ python3 -m sourcemark.tests.test_pipeline
 | Query-path overhead under 2 ms p95, no network call on the query path | met — 0.49 ms p95 in `test_pipeline` |
 | A 10k-chunk corpus anchors end to end | met — 200 document versions, 10,000 chunks, 4 log submissions |
 | Reproduces the published spec vectors byte for byte | met — 29 checks |
-
-**Not yet exercised against a live database.** The pgvector adapter is written against psycopg 3 and its SQL is unrun: every test here uses the in-memory store. Treat the schema as a design that compiles, not as one that has been migrated.
+| The pgvector adapter runs against a real database | met — Postgres 18, migration through teardown |
+| Every conformance vector reaches its required outcome in an independent verifier | met — 16 of 16, in [`sourcemark-verify`](https://github.com/advisely/sourcemark-verify) |
 
 ## Two things to know before using it
 
-**`InProcessLog` is not a transparency log.** It builds a real RFC 6962 tree and produces real proofs, signed with a key this process holds. That proves you are consistent with yourself and nothing else. The entire argument for a transparency log is that somebody other than the issuer signs the tree head — Rekor and Trillian arrive in Phase 0 deliverable 6.
+**`InProcessLog` is not a transparency log.** It builds a real RFC 6962 tree and produces real proofs, signed with a key this process holds. That proves you are consistent with yourself and nothing else. The entire argument for a transparency log is that somebody other than the issuer signs the tree head. Use `RekorLog` for that — but note that no corpus root has been submitted to the public log yet. The client works and the format is verified against production read-only; the first real submission is permanent and should be deliberate.
 
 **`LocalVersionKeys` cannot demonstrate erasure.** It keeps version keys in a JSON file, and a filesystem backup silently resurrects a key that erasure was supposed to destroy. Use a KMS-backed `VersionKeys` anywhere the erasure property is being claimed.
 

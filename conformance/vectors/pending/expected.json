@@ -1,0 +1,5 @@
+{
+  "outcome": "PENDING",
+  "exit_status": 3,
+  "why": "The entry index is not covered by this tree head's tree size. Not a failure: the root has been submitted and this tree head predates it. Retry with a fresher head. Reporting FORGED here would call a race condition an attack."
+}

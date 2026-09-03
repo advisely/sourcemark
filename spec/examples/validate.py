@@ -81,10 +81,14 @@ def validate(node: dict, value, path: str) -> None:
         errors.append(f"{path}: {value} below minimum {node['minimum']}")
 
 
+# The root is a oneOf: a response is either a receipt or a stated reason there
+# is none. The receipt branch is what the worked example exercises.
+receipt_schema = defs["receipt"]
+
 # The three proof sub-objects carry their shared shape via allOf; flatten it
 # so additionalProperties:false has the full key set to work with.
 for key in ("document", "corpus", "log"):
-    n = schema["properties"]["custody"]["properties"]["proof"]["properties"][key]
+    n = receipt_schema["properties"]["custody"]["properties"]["proof"]["properties"][key]
     n.setdefault("type", "object")
     n["properties"] = {**defs["merkleProof"]["properties"], **n.get("properties", {})}
     n["required"] = sorted(set(n.get("required", [])) | set(defs["merkleProof"]["required"]))
@@ -97,6 +101,26 @@ if errors:
         print("  -", e)
     sys.exit(1)
 print("receipt.json validates against receipt.schema.json")
+
+# The absence branch is part of the format, so the schema has to carry it.
+# A consumer that can only validate the success case will accept anything at
+# all in the case the specification is most insistent about.
+for label, sample in [
+    ("minimal", {"receipt_unavailable": {"reason": "chunk predates anchoring"}}),
+    ("with state and remedy", {"receipt_unavailable": {
+        "reason": "the stored text does not match what was anchored",
+        "remedy": "re-anchor the document version",
+        "state": "TEXT_MISMATCH"}}),
+]:
+    errors.clear()
+    validate(schema, sample, "unavailable")
+    if errors:
+        print(f"receipt_unavailable ({label}) failed to validate:")
+        for e in errors:
+            print("  -", e)
+        sys.exit(1)
+print("receipt_unavailable validates in both its shapes")
+errors.clear()
 
 # A schema is only as good as what it refuses. Each mutation below
 # corresponds to a claim made in canonicalization.md or receipt.cddl.
@@ -116,6 +140,13 @@ NEGATIVES = [
     ("log entry bytes supplied",  lambda d: d["custody"]["proof"]["log"].__setitem__("entry_data", "base16:00")),
 ]
 
+UNAVAILABLE_NEGATIVES = [
+    ("no reason given",       {"receipt_unavailable": {"state": "PENDING"}}),
+    ("invented state",        {"receipt_unavailable": {"reason": "x", "state": "PROBABLY_FINE"}}),
+    ("shaped like a receipt", {"receipt_unavailable": {"reason": "x"}, "custody": {}}),
+    ("empty body",            {"receipt_unavailable": {}}),
+]
+
 failures = 0
 for label, mutate in NEGATIVES:
     errors.clear()
@@ -128,7 +159,17 @@ for label, mutate in NEGATIVES:
         print(f"  ACCEPTS  {label}  <- schema is too permissive")
         failures += 1
 
-print(f"\n{len(NEGATIVES) - failures}/{len(NEGATIVES)} negative controls rejected")
+for label, sample in UNAVAILABLE_NEGATIVES:
+    errors.clear()
+    validate(schema, sample, "unavailable")
+    if errors:
+        print(f"  rejects  unavailable: {label}")
+    else:
+        print(f"  ACCEPTS  unavailable: {label}  <- schema is too permissive")
+        failures += 1
+
+total = len(NEGATIVES) + len(UNAVAILABLE_NEGATIVES)
+print(f"\n{total - failures}/{total} negative controls rejected")
 
 # --- receipt.cddl and the example must not drift apart ---------------------
 # The CDDL is normative and the JSON schema is a projection of it. Nothing

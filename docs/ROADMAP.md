@@ -16,11 +16,15 @@ If the answer is no, nothing later matters. If it is yes, the rest is adapters.
 |---|---|---|---|
 | 1 | Receipt spec v0.1 — CBOR schema, C2PA assertion profile, canonical serialization | Published; a second implementer can write a verifier from the document alone | **done** — `spec/`, C2PA profile still draft |
 | 2 | `sourcemark-py` — Anchor + Emit | Anchors a 10k-chunk corpus; emits a signed receipt per result | **done** — 10k chunks in 0.23 s, 0.49 ms p95 per receipt |
-| 3 | pgvector adapter | Five metadata fields written at ingest, read at query, no schema migration beyond `ALTER TABLE ADD COLUMN` | written, **not yet run against a live database** |
+| 3 | pgvector adapter | Five metadata fields written at ingest, read at query, no schema migration beyond `ALTER TABLE ADD COLUMN` | **done** — 19 checks against a live Postgres 18, including teardown |
 | 4 | Docling coordinate adapter | Page, bbox, byte range normalized from Docling output | **done** |
-| 5 | `sourcemark verify` — CLI, offline (ships from [`sourcemark-verify`](https://github.com/advisely/sourcemark-verify)) | Seven distinct outcomes per `ARCHITECTURE.md §7`, not a boolean | not started |
-| 6 | Transparency log integration | Roots submitted to Rekor or a Trillian instance; signed tree heads retrievable | not started — `InProcessLog` is a test fixture, not a log |
+| 5 | `sourcemark verify` — CLI, offline (ships from [`sourcemark-verify`](https://github.com/advisely/sourcemark-verify)) | Seven distinct outcomes per `ARCHITECTURE.md §7`, not a boolean | **done** — all 16 conformance vectors, plus an offline suite that fails if a socket opens |
+| 6 | Transparency log integration | Roots submitted to Rekor or a Trillian instance; signed tree heads retrievable | **client done, never submitted** — see below |
 | 7 | One design partner, real corpus | Their documents, their store, their auditor | not started |
+
+**On deliverable 6.** `RekorLog` implements Rekor's v1 API, the format is specified (`canonicalization.md` 5.2), the verifier handles it, and four conformance vectors cover it. Every assumption about the format is checked against production Rekor read-only, which is what found that real entries carry an X.509 certificate where a public key was expected.
+
+What has not happened is a submission. Writing to a public append-only log is irreversible and permanent, so the first real entry should be a deliberate act with a real corpus behind it, not a side effect of a test run. The remaining work is a decision, not code.
 
 The `spec/` vectors are now load-bearing rather than illustrative: `sourcemark/tests/test_conformance.py` recomputes every value in `spec/examples/derivation.txt` with a separate implementation and asserts byte equality, signatures included. That is the acceptance criterion for deliverable 1 pointed inward, and it is the reason deliverable 5 can be written in another repository against the document alone.
 

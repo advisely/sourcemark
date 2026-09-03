@@ -230,6 +230,7 @@ receipt = {
                 "tree_size": LOG_TREE_SIZE,
                 "path": log_path,
                 "root_hash": log_root,
+                "head_format": "cose.sth.v1",
                 "signed_tree_head": sth,
             },
         },

@@ -1,0 +1,5 @@
+{
+  "outcome": "MALFORMED",
+  "exit_status": 2,
+  "why": "One byte appended. A decoder that stops at the end of the first value lets a signed payload carry an unsigned appendix."
+}

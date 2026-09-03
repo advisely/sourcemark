@@ -204,13 +204,36 @@ entry_data = encode([ "sourcemark.corpus.v1", corpus_root, committed_at ])
 log_leaf   = H( 0x00 ‖ entry_data )
 ```
 
-**The verifier MUST recompute `entry_data` from `corpus_root` and `committed_at`. The receipt MUST NOT carry it and a verifier MUST NOT accept it if present.** Any byte the receipt supplies to the inclusion check is a byte the issuer chooses.
+**Under `entry_profile: "sourcemark.corpus.v1"` the verifier MUST recompute `entry_data` from `corpus_root` and `committed_at`. The receipt MUST NOT carry `entry_body` and a verifier MUST reject it if present.** Any byte the receipt supplies to the inclusion check is a byte the issuer chooses.
 
-`proof.log.entry_profile` names the construction. `sourcemark.corpus.v1` is the only value defined in v0.1; a verifier MUST reject any other rather than fall back to trusting supplied bytes.
+`proof.log.entry_profile` names the construction. A verifier MUST reject a profile it does not implement rather than fall back to trusting supplied bytes.
 
-### 5.2 Signed tree head
+### 5.2 External log profiles
 
-The STH payload is a canonical CBOR map:
+A public log does not let us choose its leaf format, and pretending otherwise would mean running our own log forever — which is the one thing a transparency argument cannot afford, because the value of a log is its operating history and the fact that somebody else holds the key.
+
+`rekor.hashedrekord.v0.0.1` is the profile for [Sigstore Rekor](https://rekor.sigstore.dev). Rekor hashes its own canonicalized entry:
+
+```
+log_leaf = H( 0x00 ‖ entry_body )
+```
+
+where `entry_body` is the exact byte string Rekor stores — the base64-decoded `body` field of its entry response. It embeds a signature over the artefact digest, so it is not recomputable from `corpus_root`, and it therefore travels in the receipt.
+
+That reopens the hole 5.1 closes, so the constraint moves up one level. A verifier MUST:
+
+1. Recompute `entry_data` exactly as in 5.1, with the tag `sourcemark.corpus.v1` — the corpus entry construction does not change because the log did.
+2. Parse `entry_body` as JSON and require `kind` `hashedrekord`, `apiVersion` `0.0.1`.
+3. **Require `spec.data.hash.value` to equal the lowercase hex of `H(entry_data)`.** This is the line that matters. With it, `entry_body` is pinned to the same corpus root the recomputed form would have covered, and the only unpinned parts are the submitter's signature and public key — neither of which affects what was attested.
+4. Verify `spec.signature.content` over `H(entry_data)` under `spec.signature.publicKey.content`, and report that key's fingerprint.
+
+The submitter's identity is reported, not required. Anyone may submit a corpus root to a public log, and it does not help them: the root still has to fold from a chunk leaf the issuer cannot forge, and an append-only log with published heads is what stops it being backdated. Demanding a particular submitter key would add a field the auditor has no way to evaluate.
+
+### 5.3 Signed tree head
+
+`proof.log.head_format` names the encoding, because a verifier cannot safely guess it.
+
+**`cose.sth.v1`** — the payload is a canonical CBOR map:
 
 ```
 { "log_id": bstr .size 32, "tree_size": uint, "root_hash": bstr .size 32, "timestamp": uint }
@@ -218,7 +241,25 @@ The STH payload is a canonical CBOR map:
 
 signed as COSE_Sign1 with protected header `{ 1: alg, 4: kid }`.
 
-### 5.3 Log identity
+**`note.checkpoint.v1`** — a signed note, as Rekor and the Go checksum database emit. UTF-8 text:
+
+```
+<origin>
+<tree size, decimal>
+<base64 root hash>
+<zero or more extension lines>
+
+— <key name> <base64( 4-byte key hint ‖ signature )>
+```
+
+The signature covers the note body: everything up to and including the blank line's preceding newline. A verifier MUST:
+
+1. Verify the signature under the log key it was supplied, not under any key named in the note. The 4-byte hint is a hint.
+2. Require the note's tree size to equal `proof.log.tree_size` and its root hash to equal `proof.log.root_hash`. **A checkpoint that signs a different tree than the proof claims is the whole attack**, and a verifier that checks the signature without checking what it signed has verified nothing.
+
+The origin line is reported and not otherwise trusted.
+
+### 5.4 Log identity
 
 ```
 log_id = H( SubjectPublicKeyInfo DER of the log's public key )
@@ -226,7 +267,7 @@ log_id = H( SubjectPublicKeyInfo DER of the log's public key )
 
 A verifier given a log public key MUST recompute `log_id` and compare it to `proof.log.log_id` **before** checking the STH signature. Without that comparison, a receipt naming a log the auditor did not intend to trust verifies cleanly against whichever key was supplied.
 
-### 5.4 The receipt signature is the weaker claim
+### 5.5 The receipt signature is the weaker claim
 
 The receipt as a whole is signed by its issuer, with protected header `{ 1: alg, 3: "application/vnd.sourcemark.receipt+cbor", 4: kid }`.
 

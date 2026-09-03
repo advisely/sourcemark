@@ -25,7 +25,14 @@ from __future__ import annotations
 import struct
 from typing import Any
 
-__all__ = ["encode", "decode", "CborError"]
+__all__ = ["encode", "decode", "CborError", "MAX_DEPTH"]
+
+# A receipt nests five deep. The limit exists because both the encoder and the
+# decoder recurse, and Python answers unbounded recursion with a RecursionError
+# that is not catchable in any useful way at the call site. 64 bytes of
+# `0x81` is a complete denial-of-service against a naive CBOR reader, and a
+# verifier is by design handed bytes chosen by whoever wants it to fail.
+MAX_DEPTH = 64
 
 
 class CborError(ValueError):
@@ -63,7 +70,7 @@ def _head(major: int, n: int) -> bytes:
     raise CborError(f"argument {n} exceeds 64 bits; no encoding is defined")
 
 
-def encode(value: Any) -> bytes:
+def encode(value: Any, _depth: int = 0) -> bytes:
     """Encode one value in the clause 2 profile.
 
     Unencodable types raise rather than degrade. A silent fallback to
@@ -71,6 +78,8 @@ def encode(value: Any) -> bytes:
     the kind of thing that is discovered years later by someone holding a
     receipt that no longer verifies.
     """
+    if _depth > MAX_DEPTH:
+        raise CborError(f"nesting deeper than {MAX_DEPTH}; refusing to encode")
     if value is True:
         return b"\xf5"
     if value is False:
@@ -82,6 +91,13 @@ def encode(value: Any) -> bytes:
             return _head(_MAJOR_UINT, value)
         return _head(_MAJOR_NINT, -value - 1)
     if isinstance(value, float):
+        # NaN and the infinities are rejected rather than encoded. There is no
+        # canonical NaN -- the payload bits are unconstrained, so two encoders
+        # can produce different signed bytes for the same value -- and a score
+        # of NaN or inf in a receipt is a bug being notarized rather than a
+        # measurement. Refusing here means it surfaces at the emitter.
+        if value != value or value in (float("inf"), float("-inf")):
+            raise CborError(f"{value!r} has no canonical encoding; refusing to sign it")
         # Clause 2.6: always float64. Shrinking to the shortest float that
         # round-trips is the one place RFC 8949 4.2.1 permits a choice, and a
         # choice in a canonical form is a bug with a specification behind it.
@@ -92,19 +108,19 @@ def encode(value: Any) -> bytes:
         raw = value.encode("utf-8")
         return _head(_MAJOR_TSTR, len(raw)) + raw
     if isinstance(value, (list, tuple)):
-        return _head(_MAJOR_ARRAY, len(value)) + b"".join(encode(v) for v in value)
+        return _head(_MAJOR_ARRAY, len(value)) + b"".join(encode(v, _depth + 1) for v in value)
     if isinstance(value, dict):
         # Clause 2.5: sort by the ENCODED key, not by the Python key. Sorting
         # by Python value orders 10 before 9 for string keys and puts ints and
         # strings in an order that depends on the runtime's comparison rules.
-        items = [(encode(k), encode(v)) for k, v in value.items()]
+        items = [(encode(k, _depth + 1), encode(v, _depth + 1)) for k, v in value.items()]
         items.sort(key=lambda kv: kv[0])
         for i in range(1, len(items)):
             if items[i][0] == items[i - 1][0]:
                 raise CborError("duplicate map key after encoding")
         return _head(_MAJOR_MAP, len(items)) + b"".join(k + v for k, v in items)
     if isinstance(value, Tagged):
-        return _head(_MAJOR_TAG, value.tag) + encode(value.value)
+        return _head(_MAJOR_TAG, value.tag) + encode(value.value, _depth + 1)
     raise CborError(f"{type(value).__name__} has no encoding in this profile")
 
 
@@ -139,7 +155,7 @@ def decode(data: bytes) -> Any:
     value and ignores the rest lets a signed payload carry an unsigned
     appendix, which two implementations will then disagree about.
     """
-    value, offset = _decode_at(data, 0)
+    value, offset = _decode_at(data, 0, 0)
     if offset != len(data):
         raise CborError(f"{len(data) - offset} trailing byte(s) after the top-level value")
     return value
@@ -197,7 +213,9 @@ def _decode_simple(data: bytes, offset: int) -> tuple[Any, int]:
     raise CborError(f"simple value {info} is not defined in this profile")
 
 
-def _decode_at(data: bytes, offset: int) -> tuple[Any, int]:
+def _decode_at(data: bytes, offset: int, depth: int) -> tuple[Any, int]:
+    if depth > MAX_DEPTH:
+        raise CborError(f"nesting deeper than {MAX_DEPTH}; refusing to decode")
     _need(data, offset, 1)
     if data[offset] >> 5 == _MAJOR_SIMPLE:
         return _decode_simple(data, offset)
@@ -220,7 +238,7 @@ def _decode_at(data: bytes, offset: int) -> tuple[Any, int]:
     if major == _MAJOR_ARRAY:
         out = []
         for _ in range(n):
-            item, offset = _decode_at(data, offset)
+            item, offset = _decode_at(data, offset, depth + 1)
             out.append(item)
         return out, offset
     if major == _MAJOR_MAP:
@@ -228,7 +246,7 @@ def _decode_at(data: bytes, offset: int) -> tuple[Any, int]:
         previous: bytes | None = None
         for _ in range(n):
             start = offset
-            key, offset = _decode_at(data, offset)
+            key, offset = _decode_at(data, offset, depth + 1)
             encoded_key = data[start:offset]
             if previous is not None and encoded_key <= previous:
                 raise CborError(
@@ -237,13 +255,19 @@ def _decode_at(data: bytes, offset: int) -> tuple[Any, int]:
                     else "duplicate map key"
                 )
             previous = encoded_key
-            value, offset = _decode_at(data, offset)
-            out[key] = value
+            value, offset = _decode_at(data, offset, depth + 1)
+            # B: a CBOR map may key on an array; Python cannot. Raising the
+            # profile's own error keeps every rejection one exception type, so
+            # a caller's `except CborError` is not silently incomplete.
+            try:
+                out[key] = value
+            except TypeError:
+                raise CborError(f"map key of type {type(key).__name__} is not hashable") from None
         return out, offset
     if major == _MAJOR_TAG:
         if n != 18:
             raise CborError(f"tag {n} is not defined in this profile")
-        inner, offset = _decode_at(data, offset)
+        inner, offset = _decode_at(data, offset, depth + 1)
         return Tagged(n, inner), offset
 
     raise CborError(f"unreachable major type {major}")  # pragma: no cover

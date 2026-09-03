@@ -1,0 +1,5 @@
+{
+  "outcome": "FORGED",
+  "exit_status": 1,
+  "why": "One sibling in the document path was replaced, so the chunk no longer folds to doc_root. The receipt is signed by a valid issuer key, which is exactly why an issuer signature is the weaker claim."
+}

@@ -1,0 +1,5 @@
+{
+  "outcome": "UNSIGNED",
+  "exit_status": 1,
+  "why": "One bit of the tree head's signature was flipped."
+}

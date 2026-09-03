@@ -1,0 +1,5 @@
+{
+  "outcome": "MALFORMED",
+  "exit_status": 2,
+  "why": "A truncated download. Distinct from FORGED, which would label a network failure an attack, and from a bare error the caller might read as absence."
+}

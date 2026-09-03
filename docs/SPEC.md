@@ -294,7 +294,18 @@ Three fields carry more weight than their size suggests.
 } }
 ```
 
-Never silent, never a stub that resembles a valid receipt. `state` is drawn from a closed set — `PENDING`, `NOT_ANCHORED`, `ERASED`, `LOG_UNREACHABLE` — so a caller can branch on it without parsing `reason`, which is prose for a human.
+Never silent, never a stub that resembles a valid receipt. `state` is drawn from a closed set so a caller can branch on it without parsing `reason`, which is prose for a human. The test for whether a condition earns its own name is whether it needs a different response:
+
+| `state` | Meaning | What the caller should do |
+|---|---|---|
+| `PENDING` | Anchored, not yet inside a logged root | Retry shortly |
+| `NOT_ANCHORED` | No anchoring record for this chunk | Re-anchor that corpus segment |
+| `ERASED` | The version key was destroyed | Nothing — terminal, and correct |
+| `LOG_UNREACHABLE` | The log could not be reached | Retry; nothing is broken |
+| `TEXT_MISMATCH` | The retrieved text is not what was anchored | Investigate the store — retrying will keep refusing |
+| `KEY_UNAVAILABLE` | The version key is absent but **not** erased | Fix the KMS access, then retry |
+
+The last two are worth their own names. `TEXT_MISMATCH` is the emitter refusing to sign a receipt over text that has drifted from what was committed: the receipt would be internally valid and would verify as `TAMPERED` at an auditor's desk months later, blaming the wrong party. The emitter knows at query time, so it says so at query time. `KEY_UNAVAILABLE` is separated from `ERASED` because `ERASED` is a correct terminal state and a missing key is an outage — collapsing them would let a KMS misconfiguration be reported to a regulator as a completed deletion.
 
 ---
 

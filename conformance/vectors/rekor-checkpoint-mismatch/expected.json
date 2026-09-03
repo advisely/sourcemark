@@ -1,0 +1,5 @@
+{
+  "outcome": "UNSIGNED",
+  "exit_status": 1,
+  "why": "The checkpoint's signature is valid and covers a different tree size than the proof claims. Checking a signature without checking what it signed verifies nothing."
+}

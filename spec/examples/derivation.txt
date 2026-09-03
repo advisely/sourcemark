@@ -25,9 +25,9 @@ log_id = SHA-256(SPKI DER)         9e7fffb04a8ed14ad8fc42b27679301975ca38c6ed8e6
 signed_tree_head (COSE_Sign1)      203
 
 RECEIPT
-canonical payload bytes            2053
-payload SHA-256                    a838d08145754b1d41fd1ea8085e82b91e37fafe17c6e0631b08f9c091b49e30
-COSE_Sign1 receipt bytes           2186
+canonical payload bytes            2077
+payload SHA-256                    e4b3acd1b050b22291af3c4719935626669d72eac558f9f75dd1f6bc13f9545b
+COSE_Sign1 receipt bytes           2210
 
 ERASED VECTOR - tree unchanged, leaf unopenable
 leaf_hash identical to live?       True
@@ -35,9 +35,9 @@ corpus_root identical to live?     True
 signed_tree_head identical to live? True
 content_commitment still present?  True
 opening now                        erased
-erased payload bytes               2041
+erased payload bytes               2065
 
 CLAUSE 2.7 - what canonicalization does and does not fix
-Sig_structure SHA-256 (fixed)      205266ccfda6b5cd15c705854f7509465772479af54cdbef927208f147949ee2
+Sig_structure SHA-256 (fixed)      a46c4efca9958c6f29a7b8a3d203a62d82511279417810a053983fdd14ffb125
 signatures byte-identical?         False
 both signatures verify?            True

@@ -36,7 +36,7 @@ Checks run in this order. **The first failure terminates and is the outcome.**
 | # | Check | Outcome on failure |
 |---|---|---|
 | 0 | Parse and profile conformance | `MALFORMED` (§6) |
-| 1 | Log identity and tree-head signature | `UNSIGNED` |
+| 1 | Log identity, tree-head signature, and that the head covers this proof | `UNSIGNED` |
 | 2 | Entry covered by this tree head | `PENDING` |
 | 3 | Leaf reconstruction and three folds | `FORGED` |
 | 4 | Content binding | `TAMPERED`, or `ERASED` (§4.5) |
@@ -95,7 +95,9 @@ If `derivation.opening` is `{erased: true}`, skip 4.4, continue to 4.5, and repo
 
 ### 4.6 Ordering → `BACKDATED`
 
-Report `BACKDATED` unless `source.committed_at <= context.retrieved_at`, and unless `sth.timestamp >= source.committed_at`.
+Report `BACKDATED` unless `source.committed_at <= context.retrieved_at`, and — when the tree head carries a timestamp — unless `sth.timestamp >= source.committed_at`.
+
+A `cose.sth.v1` head carries a timestamp; a `note.checkpoint.v1` head carries a tree size and a root hash and no clock at all. When there is no timestamp the second comparison cannot run, and a verifier **MUST say so in its report** rather than pass silently. What remains is `committed_at <= retrieved_at`, plus the log's own append-only history — which is the stronger guarantee in any case, because a 2026 checkpoint cannot be manufactured in 2028 and a self-asserted timestamp always can.
 
 This is the check that distinguishes a citation attached before the answer from one invented after it, and it is the reason timestamps are integers rather than parsed date strings (`canonicalization.md` clause 6.3).
 

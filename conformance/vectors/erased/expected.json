@@ -1,0 +1,5 @@
+{
+  "outcome": "ERASED",
+  "exit_status": 4,
+  "why": "The version key was destroyed. Every proof still folds and the signed tree head is byte-identical to the valid vector; only the opening differs. A verifier reporting TAMPERED or FORGED here is wrong: nothing was tampered with, and the log has no gap."
+}

@@ -1,0 +1,52 @@
+name: tests
+
+on: [push, pull_request]
+
+jobs:
+  suites:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sourcemark_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install cryptography 'psycopg[binary]'
+
+      # The specification checks itself first. If the worked example does not
+      # regenerate byte-for-byte, nothing downstream of it means anything.
+      - name: spec regenerates and validates
+        run: |
+          python3 spec/examples/build.py
+          python3 spec/examples/test_reference.py
+          python3 spec/examples/validate.py
+          git diff --exit-code spec/examples/
+
+      - name: package suites
+        env:
+          SOURCEMARK_TEST_DSN: postgresql://postgres:postgres@localhost:5432/sourcemark_test
+        run: python3 -m sourcemark.tests
+
+      # Read-only, and allowed to fail the build: it checks that Rekor's format
+      # is still what the profile says. A break here is real news, not flakiness
+      # to be muted -- but it is separated so a Sigstore outage does not read as
+      # a defect in this repository.
+      - name: rekor format, live and read-only
+        continue-on-error: true
+        env:
+          SOURCEMARK_REKOR: https://rekor.sigstore.dev
+        run: python3 -m sourcemark.tests.test_rekor_live
+
+      - name: conformance vectors are current
+        run: |
+          python3 conformance/build.py
+          git diff --exit-code -- $(git ls-files 'conformance/**' \
+            ':!conformance/vectors/rekor-*' ':!conformance/manifest.json')

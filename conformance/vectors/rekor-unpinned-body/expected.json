@@ -1,0 +1,5 @@
+{
+  "outcome": "FORGED",
+  "exit_status": 1,
+  "why": "The log entry is real, its inclusion proof folds, its checkpoint signs the right tree, and the submitter signature verifies -- but the artefact digest inside entry_body is not the digest of THIS receipt's corpus root. A verifier that folds the proof without performing canonicalization.md 5.2 step 3 reports VERIFIED here, and has just certified a chunk against somebody else's log entry."
+}

@@ -1,0 +1,5 @@
+{
+  "outcome": "BACKDATED",
+  "exit_status": 1,
+  "why": "The answer is dated a minute BEFORE the commitment it cites. This is the check that separates a citation attached before an answer from one invented after it."
+}

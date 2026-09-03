@@ -1,0 +1,1 @@
+Any deviation from the validated cleaning cycle must be recorded on Form QA-114b and reviewed by the Shift Supervisor before the affected batch is released.

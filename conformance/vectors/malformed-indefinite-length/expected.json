@@ -1,0 +1,5 @@
+{
+  "outcome": "MALFORMED",
+  "exit_status": 2,
+  "why": "The COSE array uses an indefinite length. It parses under a permissive CBOR reader and is forbidden by canonicalization.md clause 2.3, because two encodings of one structure mean two digests and a signature that covers whichever one you happened to build."
+}

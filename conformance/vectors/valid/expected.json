@@ -1,0 +1,5 @@
+{
+  "outcome": "VERIFIED",
+  "exit_status": 0,
+  "why": "Every check in verification.md 4 passes against the cited text."
+}

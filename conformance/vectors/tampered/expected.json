@@ -1,0 +1,5 @@
+{
+  "outcome": "TAMPERED",
+  "exit_status": 1,
+  "why": "The receipt is internally perfect. The cited text is not what the commitment covers, which is the only way to notice that a source was edited after it was anchored."
+}

@@ -1,0 +1,5 @@
+{
+  "outcome": "MALFORMED",
+  "exit_status": 2,
+  "why": "Under sourcemark.corpus.v1 the verifier recomputes the leaf, so entry_body is forbidden outright rather than merely ignored. Ignoring an unexpected field is how an input the issuer chose gets read by the next version of the verifier."
+}

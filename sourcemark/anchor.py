@@ -37,7 +37,7 @@ from .keys import VersionKeys
 from .log import TransparencyLog
 from .models import Anchoring, Chunk, Document, LogProof, MerkleProof
 
-__all__ = ["Anchor", "AnchorStore", "CommitResult", "StagedDocument"]
+__all__ = ["Anchor", "AnchorStore", "CommitResult", "StagedDocument", "WritebackError"]
 
 
 class AnchorStore(Protocol):
@@ -48,6 +48,27 @@ class AnchorStore(Protocol):
     def read(self, chunk_id: str) -> Anchoring | None: ...
 
     def read_many(self, chunk_ids: Iterable[str]) -> dict[str, Anchoring]: ...
+
+
+class WritebackError(RuntimeError):
+    """The root was logged, but not every chunk got told about it.
+
+    This is the one genuinely awkward failure in the pipeline, because the
+    log submission is not retractable: the corpus root is in an append-only
+    tree whether or not the database write that follows it succeeds. Losing
+    the batch here is fail-safe -- the affected chunks report NOT_ANCHORED
+    rather than producing a bad receipt -- but it is still data loss, and the
+    work needed to recover it is already in memory.
+
+    So the un-written anchorings are kept on the Anchor and `retry_writeback`
+    finishes the job against the SAME log entry. Re-running `flush` instead
+    would submit a second root for the same batch and leave the log carrying
+    a duplicate nobody can explain later.
+    """
+
+    def __init__(self, message: str, *, written: int, pending: int) -> None:
+        super().__init__(message)
+        self.written, self.pending = written, pending
 
 
 @dataclass(frozen=True)
@@ -98,6 +119,7 @@ class Anchor:
         self.parser = parser
         self.batch_documents = batch_documents
         self._staged: list[StagedDocument] = []
+        self._unwritten: list[list[Anchoring]] = []
 
     # -- the one line a caller adds ----------------------------------------
 
@@ -112,6 +134,16 @@ class Anchor:
             seen.add(c.chunk_id)
 
         dv = document.document_version_id
+        if any(s.document.document_version_id == dv for s in self._staged):
+            # Two leaves for one document version in a single corpus tree is
+            # not an error the tree can express -- both fold, both verify, and
+            # a verifier has no way to tell which one the chunk belongs to.
+            # Refusing is the only outcome that cannot produce a receipt that
+            # is valid and wrong.
+            raise ValueError(
+                f"{dv} is already staged in this batch; flush() before committing "
+                f"it again, or the corpus tree gets two leaves for one document version"
+            )
         salt_ref = self.keys.create(dv)
         version_key = self.keys.key(dv)
 
@@ -148,9 +180,16 @@ class Anchor:
         Returns the number of chunks made provable. Zero is not an error --
         flushing an empty batch is what a well-behaved shutdown does.
         """
+        if self._unwritten:
+            raise WritebackError(
+                f"{sum(len(b) for b in self._unwritten)} anchoring(s) from the previous "
+                f"batch are still unwritten; call retry_writeback() before flushing again, "
+                f"or the log gets a second root for work it already covers",
+                written=0, pending=sum(len(b) for b in self._unwritten),
+            )
         if not self._staged:
             return 0
-        staged, self._staged = self._staged, []
+        staged = self._staged
 
         corpus_leaves = [
             document_leaf_hash(s.document.document_version_id, s.doc_tree.root, s.doc_tree.size)
@@ -158,7 +197,11 @@ class Anchor:
         ]
         corpus_tree = MerkleTree(corpus_leaves)
         committed_at = int(time.time() * 1000)
+        # The batch stays staged until the submission succeeds. A log that is
+        # unreachable should leave the caller able to retry, not holding a
+        # tree that was hashed and then dropped.
         entry = self.log.submit(corpus_entry_data(corpus_tree.root, committed_at))
+        self._staged = []
 
         log_proof = LogProof(
             url=entry.url,
@@ -170,9 +213,11 @@ class Anchor:
             root_hash=entry.root_hash,
             signed_tree_head=entry.signed_tree_head,
             entry_profile=entry.entry_profile,
+            head_format=entry.head_format,
+            entry_body=entry.entry_body,
         )
 
-        written = 0
+        batches: list[list[Anchoring]] = []
         for doc_index, s in enumerate(staged):
             corpus_proof = MerkleProof(
                 leaf_index=doc_index,
@@ -205,8 +250,32 @@ class Anchor:
                 )
                 for i, c in enumerate(s.chunks)
             ]
-            self.store.write(anchorings)
+            batches.append(anchorings)
+
+        # Everything above is pure computation. Only this loop touches the
+        # store, so a failure has an exact boundary and an exact remainder.
+        written = 0
+        for i, anchorings in enumerate(batches):
+            try:
+                self.store.write(anchorings)
+            except Exception as exc:
+                self._unwritten = batches[i:]
+                pending = sum(len(b) for b in self._unwritten)
+                raise WritebackError(
+                    f"log entry {entry.entry_id} is committed, but write-back failed "
+                    f"after {written} of {written + pending} chunks: {exc}. "
+                    f"Call retry_writeback(); do NOT flush, which would log a second root.",
+                    written=written, pending=pending,
+                ) from exc
             written += len(anchorings)
+        return written
+
+    def retry_writeback(self) -> int:
+        """Finish a flush that failed part way, against the same log entry."""
+        written = 0
+        while self._unwritten:
+            self.store.write(self._unwritten[0])
+            written += len(self._unwritten.pop(0))
         return written
 
     # -- erasure -----------------------------------------------------------
@@ -227,6 +296,10 @@ class Anchor:
     @property
     def pending_documents(self) -> int:
         return len(self._staged)
+
+    @property
+    def unwritten_chunks(self) -> int:
+        return sum(len(b) for b in self._unwritten)
 
     def __enter__(self) -> "Anchor":
         return self

@@ -30,7 +30,7 @@ from typing import Any, Callable, Iterable
 
 from . import receipt as receipt_mod
 from .anchor import AnchorStore
-from .crypto import Signer, chunk_salt
+from .crypto import Signer, chunk_salt, content_commitment
 from .keys import ErasedError, VersionKeys
 from .models import Anchoring, Opening
 from .receipt import SupportClaim
@@ -82,33 +82,48 @@ class Emit:
         retriever_name: str = "unknown@0",
         salt_cache_ttl: float = 300.0,
         chunk_id_of: Callable[[Any], str] | None = None,
+        verify_commitment: bool = True,
     ) -> None:
         self._retriever = retriever
         self.store, self.keys, self.signer = store, keys, signer
         self.retriever_name = retriever_name
         self.salt_cache_ttl = salt_cache_ttl
         self._chunk_id_of = chunk_id_of or _default_chunk_id
+        self.verify_commitment = verify_commitment
         self._salts: dict[str, tuple[float, bytes]] = {}
         self._queries = 0
 
     # -- the wrapper -------------------------------------------------------
 
-    def search(self, *args: Any, **kwargs: Any) -> list[Result]:
+    def search(
+        self,
+        *args: Any,
+        sm_query_id: str | None = None,
+        sm_support: dict[str, SupportClaim] | None = None,
+        **kwargs: Any,
+    ) -> list[Result]:
         """Call the wrapped retriever, then attach a receipt to each result.
 
         Ranking is whatever the retriever returned, in the order it returned
         it. Nothing here reorders, drops, or filters -- a result whose chunk
         was never anchored comes back with `receipt_unavailable`, not
         removed, because silently dropping it would change the answer.
+
+        Sourcemark's own parameters are keyword-only and prefixed `sm_`, and
+        are removed before the retriever is called. An earlier version read
+        them straight out of `**kwargs` and passed the same dict through,
+        which meant asking for an explicit query id raised a TypeError from
+        somebody else's retriever. A wrapper that is transparent except for
+        the arguments it happens to want is not transparent.
         """
         results = self._retriever.search(*args, **kwargs)
         self._queries += 1
-        query_id = kwargs.get("query_id") or f"q_{self._queries:08x}"
+        query_id = sm_query_id or f"q_{self._queries:08x}"
         retrieved_at = int(time.time() * 1000)
 
         ids = [self._chunk_id_of(r) for r in results]
         anchorings = self.store.read_many(ids)
-        support = kwargs.get("support") or {}
+        support = sm_support or {}
 
         out = []
         for original, chunk_id in zip(results, ids):
@@ -125,6 +140,7 @@ class Emit:
                 query_id=query_id,
                 retrieved_at=retrieved_at,
                 support=support.get(chunk_id),
+                text=_text_of(original, anchoring),
             ))
         return out
 
@@ -149,6 +165,7 @@ class Emit:
             query_id=query_id,
             retrieved_at=retrieved_at if retrieved_at is not None else int(time.time() * 1000),
             support=support,
+            text=anchoring.text,
         )
         return result.receipt if result.receipt is not None else result.unavailable
 
@@ -162,11 +179,39 @@ class Emit:
         query_id: str,
         retrieved_at: int,
         support: SupportClaim | None,
+        text: str,
     ) -> Result:
         try:
-            opening = Opening(salt=self._salt_for(anchoring))
+            salt = self._salt_for(anchoring)
         except ErasedError:
             opening = Opening(erased=True)
+        except LookupError as exc:
+            # The version key is absent but not erased: a KMS outage, a
+            # misconfigured handle, a restore that lost it. Distinct from
+            # ERASED, because ERASED is a correct terminal state and this is
+            # a fault that should be fixed and retried. Crashing the query
+            # path over it -- which is what this used to do -- turns a
+            # provenance feature into an availability incident.
+            return Result(original, anchoring.chunk_id, unavailable=receipt_mod.unavailable(
+                f"version key for {anchoring.document.document_version_id} is unavailable: {exc}",
+                remedy="restore access to the key named by salt_ref, then retry",
+                state="KEY_UNAVAILABLE",
+            ))
+        else:
+            # The commitment must bind the text this call is about to return.
+            # If the stored text has drifted from what was anchored -- an
+            # edit straight into the database, a migration that re-normalized
+            # rows -- then signing anyway produces a receipt that verifies as
+            # TAMPERED at an auditor's desk months later. We know now, so we
+            # say now.
+            if self.verify_commitment and content_commitment(salt, text) != anchoring.content_commitment:
+                return Result(original, anchoring.chunk_id, unavailable=receipt_mod.unavailable(
+                    f"the stored text for {anchoring.chunk_id} does not match what was "
+                    f"anchored; issuing a receipt would notarize a modified chunk",
+                    remedy="re-anchor the document version, or restore the chunk text",
+                    state="TEXT_MISMATCH",
+                ))
+            opening = Opening(salt=salt)
         structure = receipt_mod.build(
             anchoring, opening,
             query_id=query_id,
@@ -203,6 +248,22 @@ class Emit:
         for k in stale:
             del self._salts[k]
         return len(stale)
+
+
+def _text_of(result: Any, anchoring: Anchoring) -> str:
+    """The text the caller is about to be handed, not the text we stored.
+
+    Checking the commitment against `anchoring.text` would compare the store
+    against itself and pass no matter what. The point of the check is that
+    the bytes leaving this process are the bytes that were committed to.
+    """
+    for attr in ("text", "content", "chunk_text"):
+        value = getattr(result, attr, None)
+        if isinstance(value, str):
+            return value
+    if isinstance(result, dict) and isinstance(result.get("text"), str):
+        return result["text"]
+    return anchoring.text
 
 
 def _default_chunk_id(result: Any) -> str:

@@ -67,6 +67,15 @@ class MerkleProof:
 
 @dataclass(frozen=True)
 class LogProof:
+    """One log entry, with everything needed to prove it -- and a statement of
+    which log wrote it.
+
+    `entry_profile` and `head_format` are carried rather than inferred. A
+    COSE tree head starts 0xd2 and a signed note starts with ASCII, so a
+    verifier could sniff them apart today; formats that are distinguishable
+    today are the ones that collide later, during an audit.
+    """
+
     url: str
     log_id: bytes
     entry_id: str
@@ -76,6 +85,20 @@ class LogProof:
     root_hash: bytes
     signed_tree_head: bytes
     entry_profile: str = "sourcemark.corpus.v1"
+    head_format: str = "cose.sth.v1"
+    # Present only for external profiles, where the log picks its own leaf
+    # format and we do not get to recompute it. See canonicalization.md 5.2.
+    entry_body: bytes | None = None
+
+    def __post_init__(self) -> None:
+        internal = self.entry_profile == "sourcemark.corpus.v1"
+        if internal and self.entry_body is not None:
+            raise ValueError(
+                "sourcemark.corpus.v1 recomputes its leaf; carrying entry_body would "
+                "hand the inclusion check an input the issuer chose"
+            )
+        if not internal and self.entry_body is None:
+            raise ValueError(f"{self.entry_profile} needs entry_body: its leaf is not recomputable")
 
 
 @dataclass(frozen=True)

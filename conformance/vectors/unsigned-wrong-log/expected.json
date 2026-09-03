@@ -1,0 +1,5 @@
+{
+  "outcome": "UNSIGNED",
+  "exit_status": 1,
+  "why": "Internally consistent and signed by a real key -- just not the log's. A verifier that checks the tree head against whichever key travels with the receipt, rather than against log_id and the key the auditor supplied, reports VERIFIED here. That is the whole attack."
+}
